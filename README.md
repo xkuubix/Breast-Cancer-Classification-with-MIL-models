@@ -1,2 +1,2 @@
 # Projekt_MMG
-Breast Cancer Detection - with axilary lymph nodes metastases
+Breast Cancer Classification - with axilary lymph nodes metastases
