@@ -31,6 +31,36 @@ file_dir = '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
 df = make_df(root, from_file=True, save_to_file=False, file_dir=file_dir)
 data = df.to_dict('records')  # list of patients as dicts
 # %%
+for seed_val in range(1, 10):
+    x1 = df.sample(frac=0.8, random_state=seed_val)
+    x2 = df.drop(x1.index)
+
+    a = {'Normal': None, 'Benign': None,
+         'Malignant': None, 'Lymph_nodes': None}
+    for name in ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']:
+        temp = 0
+        for item in x1['class']:
+            temp += sum([1 for s in item if s == name])
+        a[name] = temp
+
+    # print('x1')
+    # print(a)
+
+    b = {'Normal': None, 'Benign': None,
+         'Malignant': None, 'Lymph_nodes': None}
+    for name in ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']:
+        temp = 0
+        for item in x2['class']:
+            temp += sum([1 for s in item if s == name])
+        b[name] = temp
+    print('\n', seed_val)
+    print(a['Normal'] / (a['Normal'] + b['Normal']))
+    print(a['Benign'] / (a['Benign'] + b['Benign']))
+    print(a['Malignant'] / (a['Malignant'] + b['Malignant']))
+    print(a['Lymph_nodes'] / (a['Lymph_nodes'] + b['Lymph_nodes']))
+    # print('x2')
+    # print(b)
+# %%
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 transform = None  # normalize
