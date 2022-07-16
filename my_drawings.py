@@ -12,7 +12,7 @@ def my_show_image(dcm, with_marks=False, format_type=None):
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     if with_marks:
-        view_str = 'View: ' + dcm[1]["laterality"] + dcm[1]["view"]
+        view_str = 'View: ' + dcm[1]["view"]
         class_str = 'Class: ' + dcm[1]["class"]
         ax.set_title(view_str + '   ' + class_str, fontsize=50)
     return

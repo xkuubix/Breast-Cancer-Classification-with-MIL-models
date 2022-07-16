@@ -10,7 +10,8 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch import nn
 from net_utils import train_net, test_net
-from data_loader_gen import data_loader_gen
+from gen_data_loader import gen_data_loader
+from random_split_df import random_split_df
 
 # ------------
 # from pydicom import dcmread
@@ -28,73 +29,37 @@ class_names = ['No cancer', 'Cancer']
 root = '/media/dysk/student2/mammografia/Mammografie'
 file_dir = '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
 
-df = make_df(root, from_file=True, save_to_file=False, file_dir=file_dir)
-data = df.to_dict('records')  # list of patients as dicts
-# %%
-for seed_val in range(1, 10):
-    x1 = df.sample(frac=0.8, random_state=seed_val)
-    x2 = df.drop(x1.index)
-
-    a = {'Normal': None, 'Benign': None,
-         'Malignant': None, 'Lymph_nodes': None}
-    for name in ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']:
-        temp = 0
-        for item in x1['class']:
-            temp += sum([1 for s in item if s == name])
-        a[name] = temp
-
-    # print('x1')
-    # print(a)
-
-    b = {'Normal': None, 'Benign': None,
-         'Malignant': None, 'Lymph_nodes': None}
-    for name in ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']:
-        temp = 0
-        for item in x2['class']:
-            temp += sum([1 for s in item if s == name])
-        b[name] = temp
-    print('\n', seed_val)
-    print(a['Normal'] / (a['Normal'] + b['Normal']))
-    print(a['Benign'] / (a['Benign'] + b['Benign']))
-    print(a['Malignant'] / (a['Malignant'] + b['Malignant']))
-    print(a['Lymph_nodes'] / (a['Lymph_nodes'] + b['Lymph_nodes']))
-    # print('x2')
-    # print(b)
-# %%
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 transform = None  # normalize
-# %%
-normal_cc = BreastCancerDataset(os.path.join(root, 'Normal'),
-                                view, transform)
-# %%
-benign_cc = BreastCancerDataset(os.path.join(root, 'Benign'),
-                                view, transform)
-malignant_cc = BreastCancerDataset(os.path.join(root, 'Malignant'),
-                                   view, transform)
-lymph_nodes_cc = BreastCancerDataset(os.path.join(root, 'Lymph_nodes'),
-                                     view, transform)
 
-cc_list = [normal_cc, benign_cc, malignant_cc, lymph_nodes_cc]
+df = make_df(root, from_file=True, save_to_file=False, file_dir=file_dir)
+# data = df.to_dict('records')  # list of patients as dicts
 # %%
-make_df(cc_list)
-if 0:
-    for i in range(10):
-        my_show_image(normal_cc[i], with_marks=True)
-    for i in range(10):
-        my_show_image(benign_cc[i], with_marks=True)
-    for i in range(10):
-        my_show_image(malignant_cc[i], with_marks=True)
-    for i in range(10):
-        my_show_image(lymph_nodes_cc[i], with_marks=True)
-if 0:
-    show_stats(cc_list)
+train_set, val_set, test_set = random_split_df(df=df, seed=50)
+data_loaders, data_loaders_sizes = gen_data_loader(root,
+                                                   train_set,
+                                                   val_set,
+                                                   test_set,
+                                                   'CC',
+                                                   transforms=None)
 
 # %%
-data_loaders, data_loaders_sizes = data_loader_gen(cc_list,
-                                                   test_valid_ratio=0.8,
-                                                   valid_test_ratio=0.5,
-                                                   batch_size=2)
+# make_df(cc_list)
+# if 0:
+#     for i in range(10):
+#         my_show_image(normal_cc[i], with_marks=True)
+#     for i in range(10):
+#         my_show_image(benign_cc[i], with_marks=True)
+#     for i in range(10):
+#         my_show_image(malignant_cc[i], with_marks=True)
+#     for i in range(10):
+#         my_show_image(lymph_nodes_cc[i], with_marks=True)
+# if 0:
+#     show_stats(cc_list)
+
+# %%
+
 # %%
 net = models.resnet18(pretrained=True)
 num_features = net.fc.in_features

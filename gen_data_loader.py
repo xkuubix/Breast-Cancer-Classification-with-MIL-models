@@ -2,7 +2,7 @@ from BreastCancerDataset import BreastCancerDataset
 from torch.utils.data import DataLoader
 
 
-def data_loader_gen(root,
+def gen_data_loader(root,
                     train_df,
                     val_df,
                     test_df,
@@ -17,6 +17,10 @@ def data_loader_gen(root,
                                       view, transforms)
     test_dataset = BreastCancerDataset(root, test_df,
                                        view, transforms)
+
+    print_ds_info(train_dataset, 'Train dataset ', view)
+    print_ds_info(val_dataset, 'Validation dataset ', view)
+    print_ds_info(test_dataset, 'Test dataset ', view)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size,
                               shuffle=True, num_workers=1,
@@ -41,3 +45,15 @@ def data_loader_gen(root,
                     "test": test_loader}
 
     return data_loaders, data_loaders_sizes
+
+
+def print_ds_info(ds, name_to_print, view):
+    count_classes = {'Normal': 0, 'Benign': 0,
+                     'Malignant': 0, 'Lymph_nodes': 0}
+    for _, target in ds:
+        for k in count_classes.keys():
+            if target['class'] == k:
+                count_classes[k] += 1
+    print('\n' + name_to_print, view, 'images')
+    for k in count_classes.keys():
+        print(k, count_classes[k])

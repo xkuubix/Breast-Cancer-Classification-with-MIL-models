@@ -13,14 +13,15 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         to select dataset type.
         Call with index returns img, target view/labels
     '''
-    def __init__(self, root, view: list, transforms):
+    def __init__(self, root, df, view, transforms):
         self.root = root
         self.view = view
-        self.dicoms = self.__select_view(filter_img_size=True)
+        self.df = df
+        self.views, self.dicoms, self.class_name = self.__select_view()
         self.transforms = transforms
 
     def __getitem__(self, idx):
-        os.chdir(self.root)
+        os.chdir(os.path.join(self.root, self.class_name[idx]))
         dcm = dcmread(self.dicoms[idx])
 
         img = dcm.pixel_array
@@ -34,20 +35,20 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             img = self.transforms(img)
         target = {}
         # CCE long 0 1 2 3, BCE float 0. 1.
-        if os.path.basename(os.getcwd()) == 'Normal':
+        if self.class_name[idx] == 'Normal':
             target["labels"] = torch.tensor(0.)
             target["class"] = 'Normal'
-        elif os.path.basename(os.getcwd()) == 'Benign':
+        elif self.class_name[idx] == 'Benign':
             target["labels"] = torch.tensor(0.)
             target["class"] = 'Benign'
-        elif os.path.basename(os.getcwd()) == 'Malignant':
+        elif self.class_name[idx] == 'Malignant':
             target["labels"] = torch.tensor(1.)
             target["class"] = 'Malignant'
-        elif os.path.basename(os.getcwd()) == 'Lymph_nodes':
+        elif self.class_name[idx] == 'Lymph_nodes':
             target["labels"] = torch.tensor(1.)
             target["class"] = 'Lymph_nodes'
 
-        target["view"] = dcm.ViewPosition
+        target["view"] = self.views[idx]
         target["file"] = self.dicoms[idx]
         target['patient_id'] = dcm.PatientID
         target["age"] = self.__get_age(dcm)
@@ -64,25 +65,25 @@ class BreastCancerDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.dicoms)
 
-    def __select_view(self, filter_img_size):
-        '''Select only one view and return list of filenames'''
+    def __select_view(self):
+        '''Select only one view and return list of filenames
+           and class names(folder names)
+        '''
         # 0x0018, 0x5101 - View Position
-        os.chdir(self.root)
-        dicoms = [file for file in os.listdir(os.getcwd())
-                  if str(dcmread(file).ViewPosition).find(str(self.view[0]))
-                  is not -1
-                  or str(dcmread(file).ViewPosition).find(str(self.view[1]))
-                  is not -1
-                  and filter_img_size
-                  and dcmread(file).Rows == 3518
-                  and dcmread(file).Columns == 2800
-                  or str(dcmread(file).ViewPosition).find(str(self.view[0]))
-                  is not -1
-                  or str(dcmread(file).ViewPosition).find(str(self.view[1]))
-                  is not -1
-                  and not filter_img_size
-                  ]
-        return dicoms
+        class_names_list = []
+        filenames_list = []
+        view_list = []
+        patients = self.df.to_dict('records')
+        for patient in patients:
+            for item in range(len(patient['class'])):
+                if patient['view'][item].find(self.view) is not -1:
+                    class_names_list.append(patient['class'][item])
+                    filenames_list.append(patient['filename'][item])
+                    view_list.append(patient['view'][item])
+                else:
+                    continue
+
+        return view_list, filenames_list, class_names_list
 
     def __get_age(self, dcm):
         '''Read Patient's age from DICOM data'''
