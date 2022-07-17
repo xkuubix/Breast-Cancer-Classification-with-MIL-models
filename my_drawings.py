@@ -21,7 +21,6 @@ def my_show_image(dcm, with_marks=False, format_type=None):
 def my_show_training_results(accuracy_stats: dict, loss_stats: dict):
 
     set_matplotlib_formats('svg')
-    plt.rcParams['figure.format'] = 'svg'
 
     fig1, ax1 = plt.subplots()
     fig2, ax2 = plt.subplots()
