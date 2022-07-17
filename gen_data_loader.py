@@ -44,7 +44,11 @@ def gen_data_loader(root,
                     "val": val_loader,
                     "test": test_loader}
 
-    return data_loaders, data_loaders_sizes
+    data_sets = {"train": train_dataset,
+                 "val": val_dataset,
+                 "test": test_dataset}
+
+    return data_loaders, data_loaders_sizes, data_sets
 
 
 def print_ds_info(ds, name_to_print, view):
