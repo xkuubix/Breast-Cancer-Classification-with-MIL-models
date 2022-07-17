@@ -3,6 +3,7 @@ import copy
 import torch
 
 import numpy as np
+# from deactivate_batchnorm import deactivate_batchnorm
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.metrics import classification_report
 
@@ -32,14 +33,14 @@ def train_net(net, dataloaders,
         for phase in ["train", "val"]:
             if phase == "train":
                 net.train()
+                # net.apply(deactivate_batchnorm)
             else:
                 net.eval()
             phase_loss = 0.0
             phase_corrects = 0
 
             for images, targets in dataloaders[phase]:
-                # 1 channel -> 3 channel
-                # images = images.repeat(1, 3, 1, 1).to(device)
+
                 images = images.to(device)
                 labels = targets["labels"].to(device)
                 optimizer.zero_grad()
@@ -61,6 +62,7 @@ def train_net(net, dataloaders,
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
+                        scheduler.step()  # ----------------------------
 
                 # statistics
                 phase_loss += loss.item() * images.size(0)
@@ -71,8 +73,8 @@ def train_net(net, dataloaders,
                 if str(criterion) == 'CrossEntropyLoss()':
                     phase_corrects += torch.sum(preds == labels)
 
-            if phase == 'train':
-                scheduler.step()
+            # if phase == 'train':
+            #     scheduler.step()
 
             epoch_loss = phase_loss / dataloaders_size[phase]
             epoch_acc = phase_corrects.double() / dataloaders_size[phase]
@@ -85,7 +87,6 @@ def train_net(net, dataloaders,
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_net_wts = copy.deepcopy(net.state_dict())
-
         print()
 
     time_e = time.time() - since
