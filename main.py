@@ -11,7 +11,7 @@ from net_utils import train_net, test_net
 from gen_data_loader import gen_data_loader
 from random_split_df import random_split_df
 from LRFinder import LRFinder, plot_lr_finder
-
+from get_points_to_crop import get_points
 # ------------
 # import os
 # from pydicom import dcmread
@@ -31,9 +31,14 @@ file_dir = '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
 
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
-transform = transforms.Compose([normalize, transforms.Resize((224, 224))])
+transform = transforms.Compose([normalize,
+                                # transforms.Resize((224, 224)),
+                                transforms.RandomRotation(degrees=(0, 5)),
+                                transforms.RandomAdjustSharpness(
+                                    sharpness_factor=2)])
 
-transform = None
+# transform = None  # normalize
+tfs = [transform, None, None]
 df = make_df(root, from_file=True, save_to_file=False, file_dir=file_dir)
 # data = df.to_dict('records')  # list of patients as dicts
 # %%
@@ -43,18 +48,17 @@ data_loaders, data_loaders_sizes, ds = gen_data_loader(root,
                                                        val_set,
                                                        test_set,
                                                        'CC',
-                                                       transforms=transform,
-                                                       batch_size=16)
+                                                       transforms=tfs,
+                                                       batch_size=2)
 
 # %%
-if 1:
-    for i in range(1):
+if 0:  # find rows and col to crop
+    get_points(ds, 1683)  # crop inny dla MLO moze i jest dla odwroconych
+if 0:
+    for i in range(3):
         my_show_image(ds['train'][i], with_marks=True)
-
 # if 0:
 #     show_stats(cc_list)
-
-# %%
 
 # %%
 net = models.resnet18(pretrained=True)
@@ -62,26 +66,25 @@ net = models.resnet18(pretrained=True)
 num_features = net.fc.in_features
 net.fc = nn.Linear(num_features, 1)  # dla BCE 1, dla CCE len(class_names)
 net = net.to(device)
-print(sum(p.numel() for p in net.parameters() if p.requires_grad))
-
-# print(f'The model has {count_parameters(net):,} trainable parameters')
+print('Params:', sum(p.numel() for p in net.parameters() if p.requires_grad))
 
 # %%
 
 START_LR = 1e-7
-optimizer = optim.Adam(net.parameters(), lr=START_LR)
+optimizer = optim.SGD(net.parameters(), lr=START_LR)
 criterion = nn.BCELoss()
 criterion = criterion.to(device)
 END_LR = 1
-NUM_ITER = 300
+NUM_ITER = 100
 
 if 1:
     lr_finder = LRFinder(net, optimizer, criterion, device)
     lrs, losses = lr_finder.range_test(data_loaders['train'], END_LR, NUM_ITER)
     plot_lr_finder(lrs, losses, skip_start=0, skip_end=0)
 
-FOUND_LR = 0  # 2e-4 for adamoptim resnet50 bs32 resize224
-
+# %%
+FOUND_LR = 2e-3  # 2e-4 for adamoptim resnet50 bs32 resize224
+# parametry dla warstw resnet18 potem wgrac nową sieć aalbo parametry loadowac
 params = [
           {'params': net.conv1.parameters(), 'lr': FOUND_LR / 10},
           {'params': net.bn1.parameters(), 'lr': FOUND_LR / 10},
@@ -95,7 +98,7 @@ params = [
 optimizer = optimizer = optim.SGD(params, lr=FOUND_LR,
                                   momentum=0.9, weight_decay=0.001)
 
-EPOCHS = 10
+EPOCHS = 1_000
 STEPS_PER_EPOCH = data_loaders_sizes['train']
 TOTAL_STEPS = EPOCHS * STEPS_PER_EPOCH
 
