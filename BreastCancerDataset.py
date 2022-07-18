@@ -2,6 +2,7 @@ from pydicom import dcmread
 import torch
 import os
 from torchvision import transforms
+import torchvision.transforms.functional as TF
 from skimage import img_as_float32
 
 
@@ -31,8 +32,6 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         img = torch.from_numpy(img).unsqueeze(0).repeat(3, 1, 1)
         img = img/torch.max(img)
 
-        if self.transforms is not None:
-            img = self.transforms(img)
         target = {}
         # CCE long 0 1 2 3, BCE float 0. 1.
         if self.class_name[idx] == 'Normal':
@@ -60,6 +59,10 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             t = transforms.RandomHorizontalFlip(p=1.0)
             img = t(img)
 
+        img = TF.crop(img, 0, 0, 3518, 2400)
+        if self.transforms is not None:
+            img = self.transforms(img)
+            
         return img, target
 
     def __len__(self):
