@@ -7,16 +7,16 @@ def gen_data_loader(root,
                     val_df,
                     test_df,
                     view,
-                    transforms=None,
+                    transforms: list,
                     batch_size=2
                     ) -> tuple:
 
     train_dataset = BreastCancerDataset(root, train_df,
-                                        view, transforms)
+                                        view, transforms[0])
     val_dataset = BreastCancerDataset(root, val_df,
-                                      view, transforms)
+                                      view, transforms[1])
     test_dataset = BreastCancerDataset(root, test_df,
-                                       view, transforms)
+                                       view, transforms[2])
 
     print_ds_info(train_dataset, 'Train dataset ', view)
     print_ds_info(val_dataset, 'Validation dataset ', view)
