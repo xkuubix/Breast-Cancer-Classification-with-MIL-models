@@ -29,12 +29,11 @@ file_dir = '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
 normalize = T.Normalize(mean=[0.485, 0.456, 0.406],
                         std=[0.229, 0.224, 0.225])
 
-transform = T.Compose([
-                    #    T.Resize((224, 224)),
+transform = T.Compose([T.Resize((224, 224)),
                        T.RandomAffine(degrees=(3), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip()])
-transforms_val_test = None #T.Compose([T.Resize((224, 224))])
+transforms_val_test = None  # T.Compose([T.Resize((224, 224))])
 
 tfs = [transform, transforms_val_test, transforms_val_test]
 df = make_df(root, from_file=True, save_to_file=False, file_dir=file_dir)
