@@ -22,10 +22,8 @@ class LRFinder:
         for iteration in range(num_iter):
 
             loss = self._train_batch(next(iter(iterator)))
-
             # update lr
             lr_scheduler.step()
-
             lrs.append(lr_scheduler.get_lr()[0])
 
             if iteration > 0:
@@ -45,22 +43,17 @@ class LRFinder:
     def _train_batch(self, iterator):
 
         self.model.train()
-
         self.optimizer.zero_grad()
-
         x, y = iterator
-
         x = x.to(self.device)
         y = y['labels'].to(self.device)
-
         y_pred = self.model(x)
 
         loss = self.criterion(torch.sigmoid(y_pred.reshape(-1)), y.reshape(-1))
+        # loss = self.criterion(y_pred, y)
 
         loss.backward()
-
         self.optimizer.step()
-
         return loss.item()
 
 
