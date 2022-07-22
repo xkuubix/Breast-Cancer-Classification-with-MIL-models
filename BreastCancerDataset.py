@@ -14,7 +14,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         to select dataset type.
         Call with index returns img, target view/labels
     '''
-    def __init__(self, root, df, view, transforms):
+    def __init__(self, root, df, view: list, transforms):
         self.root = root
         self.view = view
         self.df = df
@@ -59,10 +59,10 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             t = transforms.RandomHorizontalFlip(p=1.0)
             img = t(img)
 
-        img = TF.crop(img, 0, 0, 3518, 2400)
+        img = TF.crop(img, 0, 0, 3500, 2600)
         if self.transforms is not None:
             img = self.transforms(img)
-            
+
         return img, target
 
     def __len__(self):
@@ -79,12 +79,12 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         patients = self.df.to_dict('records')
         for patient in patients:
             for item in range(len(patient['class'])):
-                if patient['view'][item].find(self.view) is not -1:
-                    class_names_list.append(patient['class'][item])
-                    filenames_list.append(patient['filename'][item])
-                    view_list.append(patient['view'][item])
-                else:
-                    continue
+                for v in self.view:
+                    if patient['view'][item].__contains__(v):
+                        # if patient['class'][item].find('Lymph_nodes') is -1:
+                        class_names_list.append(patient['class'][item])
+                        filenames_list.append(patient['filename'][item])
+                        view_list.append(patient['view'][item])
 
         return view_list, filenames_list, class_names_list
 
