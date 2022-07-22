@@ -18,18 +18,20 @@ def get_points(ds, show_images_count: int):
             col1 = np.argmax(cols)
             row1 = rows[0]
             row2 = rows[-1]
-            if row1 > 1 and row2 < 3500 and col1 < 2800:
+            if col1 < 2700:
                 r_up = np.append(r_up, row1)
                 r_down = np.append(r_down, row2)
                 c = np.append(c, col1)
             if i < show_images_count:
-                # new_image = np_im[row1[0]-50:row2[0]+50, 0:col1+50]
-                new_image = np_im[:, 0:2400]
-                plt.imshow(new_image)
-                plt.show()
-                # plt.imshow(image[0])
-                # plt.title(str(i))
-                # plt.show()
+                if col1 >= 2700:
+                    # new_image = np_im[row1[0]-50:row2[0]+50, 0:col1+50]
+                    new_image = np_im[:, 0:2590]
+                    print(col1)
+                    plt.imshow(new_image)
+                    plt.show()
+                    # plt.imshow(image[0])
+                    # plt.title(str(i))
+                    # plt.show()
             i += 1
     print(np.min(r_up), np.max(r_down), np.max(c))
     return np.min(r_up), np.max(r_down), np.max(c)
