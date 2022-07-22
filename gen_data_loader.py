@@ -6,9 +6,10 @@ def gen_data_loader(root,
                     train_df,
                     val_df,
                     test_df,
-                    view,
+                    view: list,
                     transforms: list,
-                    batch_size=2
+                    batch_size=2,
+                    nw=4
                     ) -> tuple:
 
     train_dataset = BreastCancerDataset(root, train_df,
@@ -23,13 +24,13 @@ def gen_data_loader(root,
     print_ds_info(test_dataset, 'Test dataset ', view)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size,
-                              shuffle=True, num_workers=1,
+                              shuffle=True, num_workers=nw,
                               pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size,
-                            shuffle=True, num_workers=1,
+                            shuffle=True, num_workers=nw,
                             pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size,
-                             shuffle=True, num_workers=1,
+                             shuffle=True, num_workers=nw,
                              pin_memory=True)
 
     ds_sizes = [len(item) for item in [train_dataset,
