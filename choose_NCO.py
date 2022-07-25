@@ -1,9 +1,12 @@
 import torch
 from torch import nn, optim
 from torchvision import models
+from simple_MIL import SimpleMIL
+from gated_MIL import GatedMIL
 
 
 def choose_NCO(net_ar: str, device,
+               pretrained,
                criterion_type: str,
                optimizer_type: str,
                lr=1e-3, wd=1e-1, params=None):
@@ -46,6 +49,18 @@ def choose_NCO(net_ar: str, device,
     elif net_ar == 'vgg16':
         net = models.vgg16(pretrained=True)
         # to bc
+    elif net_ar == 'mil':
+        net = SimpleMIL(num_classes=num_out,
+                        num_instances=50, pretrained=True)
+        if 0:  # torch.cuda.device_count() == 2:
+            net = nn.DataParallel(net, device_ids=[0, 1])
+        net = net.to(device)
+    elif net_ar == 'gmil':
+        net = GatedMIL(num_classes=num_out,
+                       num_instances=75, pretrained=True)
+        if torch.cuda.device_count() == 2:
+            net = nn.DataParallel(net, device_ids=[0, 1])
+        net = net.to(device)
 
     if criterion_type == 'bce':
         criterion = nn.BCELoss()
