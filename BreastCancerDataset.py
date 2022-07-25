@@ -1,9 +1,10 @@
 from pydicom import dcmread
 import torch
 import os
-from torchvision import transforms
+# from torchvision import transforms as T
 import torchvision.transforms.functional as TF
 from skimage import img_as_float32
+from tile import convert_img_to_bag
 
 
 class BreastCancerDataset(torch.utils.data.Dataset):
@@ -14,12 +15,16 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         to select dataset type.
         Call with index returns img, target view/labels
     '''
-    def __init__(self, root, df, view: list, transforms):
+    def __init__(self, root, df, view: list, transforms,
+                 conv_to_bag=False, bag_size=50, tiles=None):
         self.root = root
         self.view = view
         self.df = df
         self.views, self.dicoms, self.class_name = self.__select_view()
         self.transforms = transforms
+        self.convert_to_bag = conv_to_bag
+        self.bag_size = bag_size
+        self.tiles = tiles
 
     def __getitem__(self, idx):
         os.chdir(os.path.join(self.root, self.class_name[idx]))
@@ -55,13 +60,16 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         target["img_h"] = height
         target["img_w"] = width
 
-        if target["laterality"] == 'R':
-            t = transforms.RandomHorizontalFlip(p=1.0)
-            img = t(img)
+        # if target["laterality"] == 'R':
+        #     t = transforms.RandomHorizontalFlip(p=1.0)
+        #     img = t(img)
 
         img = TF.crop(img, 0, 0, 3500, 2600)
         if self.transforms is not None:
             img = self.transforms(img)
+
+        if self.convert_to_bag is not False:
+            img = convert_img_to_bag(img, self.tiles, self.bag_size)
 
         return img, target
 
