@@ -75,10 +75,10 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             if self.transforms is not None:
                 angle = random.choice([-90, 0, 90, 180])
                 img = TF.rotate(img, angle)
+            t = T.Normalize(mean=[0.2347, 0.2347, 0.2347],
+                            std=[0.1602, 0.1602, 0.1602])
+            img = t(img)
 
-        t = T.Normalize(mean=[0.2347, 0.2347, 0.2347],
-                        std=[0.1602, 0.1602, 0.1602])
-        img = t(img)
         return img, target
 
     def __len__(self):
