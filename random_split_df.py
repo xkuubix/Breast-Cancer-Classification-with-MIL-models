@@ -1,12 +1,14 @@
 from pandas import DataFrame
 
 
-def random_split_df(df: DataFrame, seed) -> tuple:
+def random_split_df(df: DataFrame,
+                    train_rest_frac, val_test_frac,
+                    seed) -> tuple:
 
-    print('\n seed = ', seed)
-    train = df.sample(frac=0.8, random_state=seed)
+    # print('\n seed = ', seed)
+    train = df.sample(frac=train_rest_frac, random_state=seed)
     x = df.drop(train.index)
-    val = x.sample(frac=0.5, random_state=seed)
+    val = x.sample(frac=val_test_frac, random_state=seed)
     test = x.drop(val.index)
     datasets = [train, val, test]
     for x in datasets:
