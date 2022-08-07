@@ -4,17 +4,6 @@ import torch.nn.functional as F
 from torchvision import models
 
 
-class Flatten(nn.Module):
-    def __init__(self, dim=1):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x):
-        input_shape = x.shape
-        output_shape = [input_shape[i] for i in range(self.dim)] + [-1]
-        return x.view(*output_shape)
-
-
 class Identity(nn.Module):
     def __init__(self):
         super().__init__()
