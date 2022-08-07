@@ -42,6 +42,9 @@ def make_df(dir: str, from_file=True,
             new_patient["class"] = str(folder)
             new_patient["filename"] = str(dcm.filename)
 
+            if str(new_patient["id"]) == '84215':
+                print('Manually chosen dicom ommited')
+                continue
             # filter image size
             if dcm.Rows == 3518 and dcm.Columns == 2800:
                 patient_info.append(new_patient)
@@ -57,7 +60,11 @@ def make_df(dir: str, from_file=True,
                                         "filename": list}).reset_index()
     df = df.sort_values(by='view', key=lambda x: x.str.len(), ascending=False)
     df = df.set_index(pd.Series([i for i in range(0, df.shape[0])]))
+
     if save_to_file:
+        # with open(file_dir, 'a') as f:
+        #     dfAsString = df.to_string(header=False, index=False)
+        #     f.write(dfAsString)
         df.to_pickle(file_dir)
 
     return df
