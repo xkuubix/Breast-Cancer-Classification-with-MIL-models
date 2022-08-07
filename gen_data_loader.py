@@ -11,22 +11,26 @@ def gen_data_loader(root,
                     batch_size=2,
                     nw=4,
                     conv_to_bag=False,
-                    bag_size=10,
+                    bag_size_train=100,
+                    bag_size_val_test=100,
                     tiles=None
                     ) -> tuple:
 
     train_dataset = BreastCancerDataset(root, train_df,
                                         view, transforms[0],
                                         conv_to_bag,
-                                        bag_size, tiles)
+                                        bag_size=bag_size_train,
+                                        tiles=tiles[0])
     val_dataset = BreastCancerDataset(root, val_df,
                                       view, transforms[1],
                                       conv_to_bag,
-                                      bag_size, tiles)
+                                      bag_size=bag_size_val_test,
+                                      tiles=tiles[1])
     test_dataset = BreastCancerDataset(root, test_df,
                                        view, transforms[2],
                                        conv_to_bag,
-                                       bag_size, tiles)
+                                       bag_size=bag_size_val_test,
+                                       tiles=tiles[1])
 
     print_ds_info(train_dataset, 'Train dataset ', view)
     print_ds_info(val_dataset, 'Validation dataset ', view)
@@ -34,13 +38,17 @@ def gen_data_loader(root,
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size,
                               shuffle=True, num_workers=nw,
-                              pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size,
+                              pin_memory=False
+                              )
+    val_loader = DataLoader(val_dataset, batch_size=1,
                             shuffle=True, num_workers=nw,
-                            pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size,
+                            pin_memory=False
+                            )
+
+    test_loader = DataLoader(test_dataset, batch_size=1,
                              shuffle=True, num_workers=nw,
-                             pin_memory=True)
+                             pin_memory=False
+                             )
 
     ds_sizes = [len(item) for item in [train_dataset,
                                        val_dataset,
