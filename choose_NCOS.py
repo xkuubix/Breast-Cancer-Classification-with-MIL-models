@@ -1,8 +1,9 @@
 import torch
 from torch import nn, optim
 from torchvision import models
-from simple_MIL import SimpleMIL
-from gated_MIL import GatedMIL
+from mil_net_architectures import GatedMIL
+from mil_net_architectures import SimpleMIL
+from mil_net_architectures import DSMIL
 from torch.optim import lr_scheduler
 
 
@@ -72,8 +73,23 @@ def choose_NCOS(net_ar: str, device,
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
 
-    # SELECT OPTIMIZER
+    elif net_ar == 'nl_dsmil':
+        net = DSMIL(num_classes=num_out,
+                    pretrained=pretrained,
+                    nonlinear=True)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
 
+    elif net_ar == 'l_dsmil':
+        net = DSMIL(num_classes=num_out,
+                    pretrained=pretrained,
+                    nonlinear=False)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    # SELECT OPTIMIZER
     if optimizer_type == 'sgd':
         optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9,
                               weight_decay=wd)
