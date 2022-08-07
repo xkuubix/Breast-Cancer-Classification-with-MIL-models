@@ -15,7 +15,8 @@ def train_net(net, dataloaders,
               criterion,
               optimizer,
               scheduler,
-              num_epochs=25):
+              num_epochs,
+              neptune_run):
     """
     Trains net for epochs given in parameter num_epochs
     meanwhile saving best weights in net.state_dict format
@@ -24,8 +25,9 @@ def train_net(net, dataloaders,
     since = time.time()
     best_net_wts = copy.deepcopy(net.state_dict())
     best_loss = None
+    best_acc = None
     early_stopping_counter = 0
-    patience = 10
+    patience = 100
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -42,29 +44,28 @@ def train_net(net, dataloaders,
             phase_corrects = 0
 
             for images, targets in dataloaders[phase]:
-
                 images = images.to(device)
                 labels = targets["labels"].to(device)
                 optimizer.zero_grad()
-
                 # forward pass
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = net(images)
                     if str(criterion) == 'CrossEntropyLoss()':
-                        _, preds = torch.max(outputs, 1)
-                        loss = criterion(outputs, labels)
+                        _, preds = torch.max(outputs[0].reshape(-1, 4), 1)
+                        loss = criterion(outputs[0].reshape(-1, 4), labels)
 
                     if str(criterion) == 'BCELoss()':
-                        preds = torch.sigmoid(outputs).reshape(-1).detach(
-                            ).cpu().numpy().round()
-                        loss = criterion(torch.sigmoid(outputs).reshape(-1),
+                        # preds = torch.sigmoid(outputs).reshape(-1).detach(
+                        #     ).cpu().numpy().round()
+                        preds = torch.sigmoid(outputs[0]).reshape(-1).detach(
+                              ).cpu().numpy().round()
+                        loss = criterion(torch.sigmoid(outputs[0]).reshape(-1),
                                          labels)
-
                     # backward pass + opt
                     if phase == 'train':
                         loss.backward()
-                        # scheduler.step()  # ----------------------------
                         optimizer.step()
+                        # scheduler.step()  # ----------------------------
 
                 # statistics
                 phase_loss += loss.item() * images.size(0)
@@ -81,6 +82,13 @@ def train_net(net, dataloaders,
 
             epoch_loss = phase_loss / dataloaders_size[phase]
             epoch_acc = phase_corrects.double() / dataloaders_size[phase]
+
+            # NEPTUNE LOGGING
+            # print(phase + '/loss')
+            neptune_run[phase + '/loss'].log(epoch_loss)
+            # print(neptune_run[phase + '/loss'])
+            neptune_run[phase + '/accuracy'].log(epoch_acc)
+
             loss_stats[phase].append(epoch_loss)
             accuracy_stats[phase].append(epoch_acc)
 
@@ -92,12 +100,21 @@ def train_net(net, dataloaders,
                       + f'time: {time_e // 60:3.0f}m {time_e % 60:2.0f}s')
 
             # deep copy the net params
-            if phase == 'val' and epoch_loss < best_loss or best_loss is None:
+            if phase == 'val' and best_loss is None:
+                best_loss = epoch_loss
+                best_net_wts = copy.deepcopy(net.state_dict())
+                early_stopping_counter = 0
+            elif phase == 'val' and epoch_loss < best_loss:
                 best_loss = epoch_loss
                 best_net_wts = copy.deepcopy(net.state_dict())
                 early_stopping_counter = 0
             elif phase == 'val' and epoch_loss > best_loss:
                 early_stopping_counter += 1
+
+            if phase == 'val' and epoch_acc > best_acc or best_acc is None:
+                best_acc = epoch_acc
+                best_net_wts_acc = copy.deepcopy(net.state_dict())
+
         # early stopping
         if early_stopping_counter >= patience:
             print('INFO: Early stopping!')
@@ -108,8 +125,9 @@ def train_net(net, dataloaders,
     print(f'Best val Loss: {best_loss:4f}')
 
     # load best net weights
-    net.load_state_dict(best_net_wts)
-    return net, loss_stats, accuracy_stats
+    # net.load_state_dict(best_net_wts)
+
+    return best_net_wts, best_net_wts_acc, loss_stats, accuracy_stats
 
 
 def test_net(net, data_loaders: dict, class_names: list, device,
@@ -126,6 +144,8 @@ def test_net(net, data_loaders: dict, class_names: list, device,
 
         with torch.no_grad():
             outputs = net(images)
+            if len(outputs) > 1:
+                outputs = outputs[0]
             if outputs.size(dim=1) == 1:
                 pred = torch.sigmoid(
                     outputs).reshape(-1).detach().cpu().numpy().round()
@@ -149,8 +169,13 @@ def test_net(net, data_loaders: dict, class_names: list, device,
                     drawings += 1
 
     cm = confusion_matrix(true, preds)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
-    disp.plot()
+    cm = ConfusionMatrixDisplay(cm)
+    cm.plot()
+    if 0:
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        disp.plot()
+        print(classification_report(true, preds, target_names=class_names))
+    report = classification_report(true, preds, target_names=class_names,
+                                   output_dict=False)
 
-    print(classification_report(true, preds, target_names=class_names))
-    return
+    return report, cm.figure_
