@@ -15,7 +15,7 @@ data_sets:
   class_names: ['No cancer', 'Cancer']
   #['Normal', 'Benign', 'Malignant', 'Lymph_nodes'] bcds zmienic 0.1. na 0123
   patch_size: 512
-  bag_size_train: 60
+  bag_size_train: 50
   bag_size_val_test: -1
   overlap_train_val: 0.5
   overlap_val_test: 0.5
