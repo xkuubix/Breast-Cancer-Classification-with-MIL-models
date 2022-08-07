@@ -1,7 +1,7 @@
 from pydicom import dcmread
 import torch
 import os
-from torchvision import transforms as T
+# from torchvision import transforms as T
 import torchvision.transforms.functional as TF
 from skimage import img_as_float32
 from tile_maker import convert_img_to_bag
@@ -75,9 +75,10 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             if self.transforms is not None:
                 angle = random.choice([-90, 0, 90, 180])
                 img = TF.rotate(img, angle)
-            t = T.Normalize(mean=[0.2347, 0.2347, 0.2347],
-                            std=[0.1602, 0.1602, 0.1602])
-            img = t(img)
+
+            # t = T.Normalize(mean=[0.2347, 0.2347, 0.2347],
+            # std=[0.1602, 0.1602, 0.1602])
+            # img = t(img)
 
         return img, target
 
