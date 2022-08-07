@@ -13,7 +13,7 @@ def my_show_image(dcm, with_marks=False, prediction=None,
         fig, ax = plt.subplots()
         fs = 10
 
-    ax.imshow(dcm[0].permute(1, 2, 0), cmap=plt.cm.gray)
+    ax.imshow(dcm[1]['full_image'].permute(1, 2, 0), cmap=plt.cm.gray)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     if with_marks:

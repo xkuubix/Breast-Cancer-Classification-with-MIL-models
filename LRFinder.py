@@ -49,6 +49,9 @@ class LRFinder:
         y = y['labels'].to(self.device)
         y_pred = self.model(x)
 
+        if len(y_pred) > 1:
+            y_pred = y_pred[0]
+
         loss = self.criterion(torch.sigmoid(y_pred.reshape(-1)), y.reshape(-1))
         # loss = self.criterion(y_pred, y)
 
