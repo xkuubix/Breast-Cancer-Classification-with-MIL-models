@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pydicom import dcmread
 import os
+import torch
 
 
 def make_df(dir: str, from_file=True,
@@ -66,8 +67,98 @@ def make_df(dir: str, from_file=True,
         #     dfAsString = df.to_string(header=False, index=False)
         #     f.write(dfAsString)
         df.to_pickle(file_dir)
-
     return df
+
+
+def make_img_stats_dict(ds):
+    stats_dict = {'id': [], 'area': [],
+                  'mean': [], 'std': [], 'var': [],
+                  'class': []}
+    for d_s in ['train', 'val', 'test']:
+        for image, target in ds[d_s]:
+            my_mask = target['full_image'].clone()
+            my_mask[my_mask < 1e-4] = 0
+            my_mask[my_mask > 1e-4] = 1
+            np_image = my_mask.permute(1, 2, 0).numpy()
+            # plt.imshow(np_image)
+            # plt.show()
+            # plt.imshow(target['full_image'].permute(1, 2, 0))
+            # plt.show()
+            total_pixels = np.sum(np_image)/np_image.shape[2]
+            total_area = 0.085**2 * total_pixels * 0.01  # cm square
+            # print('area = ', total_area, ' [cm2]')
+            masked_image_mean = torch.mean(target['full_image'][my_mask == 1])
+            masked_image_std = torch.std(target['full_image'][my_mask == 1])
+            masked_image_var = torch.var(target['full_image'][my_mask == 1])
+            # print(masked_image_mean)
+            # print(masked_image_std)
+            # print(masked_image_var)
+            stats_dict['id'].append(target['patient_id'])
+            stats_dict['area'].append(total_area)
+            stats_dict['mean'].append(masked_image_mean.item())
+            stats_dict['std'].append(masked_image_std.item())
+            stats_dict['var'].append(masked_image_var.item())
+            stats_dict['class'].append(target['class'])
+    # plt.scatter(stats_dict['area'], stats_dict['mean'])
+    return stats_dict
+
+
+def box_plot(stats_dict, k):
+    '''k = area, mean, std or var as string
+       stats_dict from make_img_stats_dict'''
+    normal = np.array(stats_dict[k])[np.array(stats_dict['class'])
+                                     == 'Normal']
+    benign = np.array(stats_dict[k])[np.array(stats_dict['class'])
+                                     == 'Benign']
+    malignant = np.array(stats_dict[k])[np.array(stats_dict['class'])
+                                        == 'Malignant']
+    lymph_nodes = np.array(stats_dict[k])[np.array(stats_dict['class'])
+                                          == 'Lymph_nodes']
+    data = [normal, benign, malignant, lymph_nodes]
+    classes_names = ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    # Creating axes instance
+    bp = ax.boxplot(data, patch_artist=True,
+                    notch='True', vert=0)
+
+    colors = ['#0000FF', '#00FF00',
+              '#FFFF00', '#FF00FF']
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+    # changing color and linewidth of whiskers
+    for whisker in bp['whiskers']:
+        whisker.set(color='#8B008B',
+                    linewidth=1.5,
+                    linestyle=":")
+    # changing color and linewidth of caps
+    for cap in bp['caps']:
+        cap.set(color='#8B008B',
+                linewidth=2)
+    # changing color and linewidth of medians
+    for median in bp['medians']:
+        median.set(color='red',
+                   linewidth=3)
+    # changing style of fliers
+    for flier in bp['fliers']:
+        flier.set(marker='D',
+                  color='#e7298a',
+                  alpha=0.5)
+    # x-axis labels
+    ax.set_yticklabels(classes_names)
+    # Adding title
+    if k == 'area':
+        title = k + ' [cm$^2$]'
+    else:
+        title = k
+    plt.title(title)
+    # Removing top axes and right axes ticks
+    ax.get_xaxis().tick_bottom()
+    ax.get_yaxis().tick_left()
+    # show plot
+    plt.show()
 
 
 def calculate_laterality_count(dataset) -> dict:
