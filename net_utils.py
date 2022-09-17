@@ -27,7 +27,7 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 100
+    patience = 150
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -52,15 +52,43 @@ def train_net(net, dataloaders,
                     outputs = net(images)
                     if str(criterion) == 'CrossEntropyLoss()':
                         _, preds = torch.max(outputs[0].reshape(-1, 4), 1)
-                        loss = criterion(outputs[0].reshape(-1, 4), labels)
+
+                        if type(net).__name__ == 'DSMIL':
+                            max_prediction, _ = torch.max(outputs[3], 1)
+                            loss_bag = criterion(outputs[0].reshape(-1, 4),
+                                                 labels)
+
+                            loss_max = criterion(max_prediction.reshape(-1, 4),
+                                                 labels)
+
+                            loss_total = 0.5*loss_bag + 0.5*loss_max
+                            loss = loss_total.mean()
+                        else:
+                            loss = criterion(outputs[0].reshape(-1, 4), labels)
 
                     if str(criterion) == 'BCELoss()':
                         # preds = torch.sigmoid(outputs).reshape(-1).detach(
                         #     ).cpu().numpy().round()
                         preds = torch.sigmoid(outputs[0]).reshape(-1).detach(
                               ).cpu().numpy().round()
-                        loss = criterion(torch.sigmoid(outputs[0]).reshape(-1),
-                                         labels)
+                        if type(net).__name__ == 'DSMIL':
+                            max_prediction, _ = torch.max(outputs[3], 1)
+
+                            loss_bag = criterion(
+                                torch.sigmoid(outputs[0]),
+                                labels.view(-1, 1))
+
+                            loss_max = criterion(
+                                torch.sigmoid(max_prediction),
+                                labels.view(-1, 1))
+
+                            loss_total = 0.5*loss_bag + 0.5*loss_max
+                            loss = loss_total.mean()
+
+                        else:
+                            loss = criterion(torch.sigmoid(
+                                outputs[0]).reshape(-1), labels)
+
                     # backward pass + opt
                     if phase == 'train':
                         loss.backward()
@@ -83,11 +111,12 @@ def train_net(net, dataloaders,
             epoch_loss = phase_loss / dataloaders_size[phase]
             epoch_acc = phase_corrects.double() / dataloaders_size[phase]
 
-            # NEPTUNE LOGGING
-            # print(phase + '/loss')
-            neptune_run[phase + '/loss'].log(epoch_loss)
-            # print(neptune_run[phase + '/loss'])
-            neptune_run[phase + '/accuracy'].log(epoch_acc)
+            if neptune_run is not None:
+                # NEPTUNE LOGGING
+                # print(phase + '/loss')
+                neptune_run[phase + '/loss'].log(epoch_loss)
+                # print(neptune_run[phase + '/loss'])
+                neptune_run[phase + '/accuracy'].log(epoch_acc)
 
             loss_stats[phase].append(epoch_loss)
             accuracy_stats[phase].append(epoch_acc)
@@ -136,6 +165,8 @@ def test_net(net, data_loaders: dict, class_names: list, device,
     net.eval()
     preds = np.array([])
     true = np.array([])
+    positive_age = np.array([])
+    negative_age = np.array([])
     drawings = 0
     for batches in data_loaders["test"]:
 
@@ -154,6 +185,18 @@ def test_net(net, data_loaders: dict, class_names: list, device,
                 pred = outputs.softmax(1).argmax(1).cpu()
                 preds = np.append(preds, pred)
             true = np.append(true, targets.cpu())
+            # ---------
+            # print("PRED: ", pred.item(), " TRUE: ", targets.cpu().item(),
+            #       " age: ", batches[1]['age'].item(),
+            #       ' eq ', pred.item() == targets.item())
+
+            if pred.item() == targets.item():
+                positive_age = np.append(positive_age,
+                                         batches[1]['age'].item())
+            else:
+                negative_age = np.append(negative_age,
+                                         batches[1]['age'].item())
+            # ---------
 
             #  plot images and predictions
             for i in range(len(images)):
@@ -175,6 +218,9 @@ def test_net(net, data_loaders: dict, class_names: list, device,
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
         disp.plot()
         print(classification_report(true, preds, target_names=class_names))
+    # print("Average positive - age ", np.mean(positive_age))
+    # print("Average negative - age ", np.mean(negative_age))
+
     report = classification_report(true, preds, target_names=class_names,
                                    output_dict=False)
 
