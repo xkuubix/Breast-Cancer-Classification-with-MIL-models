@@ -3,10 +3,11 @@ import copy
 import torch
 
 import numpy as np
+import matplotlib.pyplot as plt
 # from deactivate_batchnorm import deactivate_batchnorm
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.metrics import classification_report
-from my_drawings import my_show_image
+from sklearn.metrics import roc_curve, auc
 
 
 def train_net(net, dataloaders,
@@ -27,7 +28,7 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 150
+    patience = 75
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -160,14 +161,13 @@ def train_net(net, dataloaders,
 
 
 def test_net(net, data_loaders: dict, class_names: list, device,
-             drawing_num=0):
+             threshold=0.5):
 
     net.eval()
+    scores = np.array([])
     preds = np.array([])
     true = np.array([])
-    positive_age = np.array([])
-    negative_age = np.array([])
-    drawings = 0
+
     for batches in data_loaders["test"]:
 
         images = batches[0].to(device)
@@ -178,50 +178,55 @@ def test_net(net, data_loaders: dict, class_names: list, device,
             if len(outputs) > 1:
                 outputs = outputs[0]
             if outputs.size(dim=1) == 1:
-                pred = torch.sigmoid(
-                    outputs).reshape(-1).detach().cpu().numpy().round()
-                preds = np.append(preds, pred)
+                score = torch.sigmoid(
+                    outputs).reshape(-1).detach().cpu().numpy()
+                scores = np.append(scores, score)
             elif outputs.size(dim=1) == 4:
                 pred = outputs.softmax(1).argmax(1).cpu()
                 preds = np.append(preds, pred)
             true = np.append(true, targets.cpu())
-            # ---------
-            # print("PRED: ", pred.item(), " TRUE: ", targets.cpu().item(),
-            #       " age: ", batches[1]['age'].item(),
-            #       ' eq ', pred.item() == targets.item())
 
-            if pred.item() == targets.item():
-                positive_age = np.append(positive_age,
-                                         batches[1]['age'].item())
-            else:
-                negative_age = np.append(negative_age,
-                                         batches[1]['age'].item())
-            # ---------
-
-            #  plot images and predictions
-            for i in range(len(images)):
-                if drawings == drawing_num:
-                    break
-                else:
-                    dcm = [batches[0][i], {'view': batches[1]['view'][i],
-                                           'class': batches[1]['class'][i]}]
-                    prediction = int(preds[drawings])
-                    my_show_image(dcm, with_marks=True,
-                                  prediction=prediction,
-                                  class_names=class_names)
-                    drawings += 1
-
+    figures = {}
+    if outputs.size(dim=1) == 1:
+        preds = scores >= threshold
+        roc_fig, best_threshold, roc_auc = roc_curve_plot(true, scores, True)
+        figures['roc'] = roc_fig
     cm = confusion_matrix(true, preds)
     cm = ConfusionMatrixDisplay(cm)
     cm.plot()
+    figures['cm'] = cm.figure_
     if 0:
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
         disp.plot()
         print(classification_report(true, preds, target_names=class_names))
-    # print("Average positive - age ", np.mean(positive_age))
-    # print("Average negative - age ", np.mean(negative_age))
 
     report = classification_report(true, preds, target_names=class_names,
                                    output_dict=False)
 
-    return report, cm.figure_
+    return report, figures, best_threshold, roc_auc
+
+
+def roc_curve_plot(true, scores: float, show: bool):
+
+    fpr, tpr, thresholds = roc_curve(true, scores, pos_label=1)
+    roc_auc = auc(fpr, tpr)
+
+    fig = plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color="darkorange", lw=lw,
+             label="ROC curve (area = %0.2f)" % roc_auc,)
+
+    plt.plot([0, 1], [0, 1], color="navy", lw=lw, linestyle="--")
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Receiver operating characteristic")
+    plt.legend(loc="lower right")
+    plt.show()
+
+    idx = np.argmax(tpr - fpr)
+    best_threshold = thresholds[idx]
+    print('Best threshold = ', best_threshold)
+
+    return fig, thresholds[idx], roc_auc
