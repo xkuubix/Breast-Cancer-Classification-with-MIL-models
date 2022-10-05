@@ -160,8 +160,7 @@ def train_net(net, dataloaders,
     return best_net_wts, best_net_wts_acc, loss_stats, accuracy_stats
 
 
-def test_net(net, data_loaders: dict, class_names: list, device,
-             threshold=0.5):
+def test_net(net, data_loaders: dict, class_names: list, device):
 
     net.eval()
     scores = np.array([])
@@ -187,23 +186,31 @@ def test_net(net, data_loaders: dict, class_names: list, device,
             true = np.append(true, targets.cpu())
 
     figures = {}
+    reports = {}
     if outputs.size(dim=1) == 1:
-        preds = scores >= threshold
+        preds = scores >= 0.5
         roc_fig, best_threshold, roc_auc = roc_curve_plot(true, scores, True)
         figures['roc'] = roc_fig
+
     cm = confusion_matrix(true, preds)
     cm = ConfusionMatrixDisplay(cm)
     cm.plot()
-    figures['cm'] = cm.figure_
-    if 0:
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
-        disp.plot()
-        print(classification_report(true, preds, target_names=class_names))
+    figures['cm_th_05'] = cm.figure_
+    reports['th_05'] = classification_report(true, preds,
+                                             target_names=class_names,
+                                             output_dict=False)
 
-    report = classification_report(true, preds, target_names=class_names,
-                                   output_dict=False)
+    if outputs.size(dim=1) == 1:
+        preds = scores >= best_threshold
+        cm = confusion_matrix(true, preds)
+        cm = ConfusionMatrixDisplay(cm)
+        cm.plot()
+        figures['cm_th_best'] = cm.figure_
+        reports['th_best'] = classification_report(true, preds,
+                                                   target_names=class_names,
+                                                   output_dict=False)
 
-    return report, figures, best_threshold, roc_auc
+    return reports, figures, best_threshold
 
 
 def roc_curve_plot(true, scores: float, show: bool):
