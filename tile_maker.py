@@ -61,7 +61,11 @@ def convert_img_to_bag(image, tiles, bag_size):
     # if bag_size > len(sorted_tiles_idx) and not None:
     #     bag_size = len(sorted_tiles_idx)
     # # bag = new_img[sorted_tiles_idx[:bag_size]]
-    if bag_size == 'const300':
+    if bag_size == 'const50':
+        instances = new_img[sorted_tiles_idx[:50]]
+        instances_idx = sorted_tiles_idx[:50]
+        instances, instances_idx = shuffle(instances, instances_idx)
+    elif bag_size == 'const300':
         instances = new_img[sorted_tiles_idx[:300]]
         instances_idx = sorted_tiles_idx[:300]
         instances, instances_idx = shuffle(instances, instances_idx)
