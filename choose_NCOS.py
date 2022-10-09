@@ -4,6 +4,9 @@ from torchvision import models
 from mil_net_architectures import GatedMIL
 from mil_net_architectures import SimpleMIL
 from mil_net_architectures import DSMIL
+from mil_net_architectures import MultiAttentionMIL
+from mil_net_architectures import GatedMultiAttentionMIL
+from mil_net_architectures import TransMIL
 from torch.optim import lr_scheduler
 
 
@@ -85,6 +88,27 @@ def choose_NCOS(net_ar: str, device,
         net = DSMIL(num_classes=num_out,
                     pretrained=pretrained,
                     nonlinear=False)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    elif net_ar == 'mamil':
+        net = MultiAttentionMIL(num_classes=num_out,
+                                pretrained=pretrained)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    elif net_ar == 'gmamil':
+        net = GatedMultiAttentionMIL(num_classes=num_out,
+                                     pretrained=pretrained)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    elif net_ar == 'trans_mil':
+        net = TransMIL(num_classes=num_out,
+                       pretrained=pretrained)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
