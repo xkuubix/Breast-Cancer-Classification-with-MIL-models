@@ -13,7 +13,8 @@ def gen_data_loader(root,
                     conv_to_bag=False,
                     bag_size_train=100,
                     bag_size_val_test=100,
-                    tiles=None
+                    tiles=None,
+                    collate_fn=None
                     ) -> tuple:
 
     train_dataset = BreastCancerDataset(root, train_df,
@@ -38,16 +39,16 @@ def gen_data_loader(root,
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size,
                               shuffle=True, num_workers=nw,
-                              pin_memory=False
+                              collate_fn=collate_fn
                               )
     val_loader = DataLoader(val_dataset, batch_size=1,
                             shuffle=True, num_workers=nw,
-                            pin_memory=False
+                            collate_fn=collate_fn
                             )
 
     test_loader = DataLoader(test_dataset, batch_size=1,
                              shuffle=True, num_workers=nw,
-                             pin_memory=False
+                             collate_fn=collate_fn
                              )
 
     ds_sizes = [len(item) for item in [train_dataset,
