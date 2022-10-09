@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 from torchvision import models
 from batch_idx_sel import batched_index_select
+from nystrom_attention import NystromAttention
 
 
 class Identity(nn.Module):
@@ -27,6 +29,7 @@ class GatedMIL(nn.Module):
         self.K = 1    # minimum patchy?
 
         self.feature_extractor = models.resnet18(pretrained=pretrained)
+
         self.num_features = self.feature_extractor.fc.in_features  # selfdod
         self.feature_extractor.fc = Identity()
         # # self.feature_extractor.avgpool = Identity()
@@ -110,7 +113,7 @@ class DSMIL(nn.Module):
     def forward(self, x):
         # bs-batch, N-num_instances, K-fts_per_inst CH-channels W/H-wdth/hght
         bs, num_instances, ch, h, w = x.shape
-        device = x.device
+        # device = x.device
 
         x = x.view(bs*num_instances, ch, h, w)  # x: N bs x CH x W x W
         feats = self.feature_extractor(x)  # feats: N bs x CH' x W' x W'
@@ -128,8 +131,9 @@ class DSMIL(nn.Module):
         q_max = self.q(m_feats)  # bs x C x Q
 
         A = torch.matmul(Q, q_max.transpose(1, 2))  # bs x N x C
-        A = F.softmax(A / torch.sqrt(torch.tensor(
-            Q.shape[1], dtype=torch.float32, device=device)), dim=1)
+        A = F.softmax(A, dim=1)
+        # A = F.softmax(A / torch.sqrt(torch.tensor(
+        #     Q.shape[2], dtype=torch.float32, device=device)), dim=1)
 
         B = torch.matmul(A.transpose(1, 2), V)  # bs x C x V
         # B = B.view(1, B.shape[0], B.shape[1])  # 1 x C x V
@@ -191,3 +195,302 @@ class SimpleMIL(nn.Module):
         Y = self.classifier(z)  # added
         return Y, A
 # -----------------------------------------------------------------
+
+
+# ------------------------MA-MIL------------------------------------
+class MultiAttentionMIL(nn.Module):
+    def __init__(self, num_classes, pretrained,
+                 use_dropout=False, n_dropout=0.4):
+
+        super(MultiAttentionMIL, self).__init__()
+        self.num_classes = num_classes
+        self.use_dropout = use_dropout
+        self.n_dropout = n_dropout
+
+        self.D = 128
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+
+        self.fc1 = nn.Sequential(
+            nn.Linear(self.num_features, self.D),
+            nn.ReLU(),
+        )
+        self.attention1 = nn.Sequential(
+            nn.Linear(self.D, self.D), nn.Tanh(), nn.Linear(self.D, 1)
+        )
+
+        self.fc2 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.ReLU(),
+        )
+        self.attention2 = nn.Sequential(
+            nn.Linear(self.D, self.D), nn.Tanh(), nn.Linear(self.D, 1)
+        )
+
+        self.fc3 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.ReLU(),
+        )
+        self.attention3 = nn.Sequential(
+            nn.Linear(self.D, self.D), nn.Tanh(), nn.Linear(self.D, 1)
+        )
+
+        self.fc4 = nn.Sequential(nn.Linear(self.D, self.num_classes))
+
+    def forward(self, x):
+        ################
+        x1 = x.squeeze(0)
+        x1 = self.feature_extractor(x1)
+        x1 = self.fc1(x1)
+        if self.use_dropout:
+            x1 = nn.Dropout(self.n_dropout)(x1)
+        # -------
+        a1 = self.attention1(x1)
+        a1 = torch.transpose(a1, 1, 0)
+        a1 = nn.Softmax(dim=1)(a1)
+        # -------
+        m1 = torch.mm(a1, x1)
+        m1 = m1.view(-1, 1 * self.D)
+
+        ################
+        x2 = self.fc2(x1)
+        if self.use_dropout:
+            x2 = nn.Dropout(self.n_dropout)(x2)
+        # -------
+        a2 = self.attention2(x2)
+        a2 = torch.transpose(a2, 1, 0)
+        a2 = nn.Softmax(dim=1)(a2)
+        # -------
+        m2 = torch.mm(a2, x2)
+        m2 = m2.view(-1, 1 * self.D)
+        m2 += m1
+
+        ################
+        x3 = self.fc3(x2)
+        if self.use_dropout:
+            x3 = nn.Dropout(self.n_dropout)(x3)
+        # -------
+        a3 = self.attention3(x3)
+        a3 = torch.transpose(a3, 1, 0)
+        a3 = nn.Softmax(dim=1)(a3)
+        # -------
+        m3 = torch.mm(a3, x3)
+        m3 = m3.view(-1, 1 * self.D)
+        m3 += m2
+
+        result = self.fc4(m3)
+
+        return result, a1, a2, a3
+# -----------------------------------------------------------------
+
+
+# ------------------------GMA-MIL------------------------------------
+class GatedMultiAttentionMIL(nn.Module):
+    def __init__(self, num_classes, pretrained,
+                 use_dropout=False, n_dropout=0.4):
+
+        super(GatedMultiAttentionMIL, self).__init__()
+        self.num_classes = num_classes
+        self.use_dropout = use_dropout
+        self.n_dropout = n_dropout
+
+        self.D = 128
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+
+        self.fc1 = nn.Sequential(
+            nn.Linear(self.num_features, self.D),
+            nn.ReLU()
+        )
+        self.attention_V1 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Tanh()
+        )
+        self.attention_U1 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Sigmoid()
+        )
+
+        self.fc2 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.ReLU()
+        )
+        self.attention_V2 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Tanh(),
+        )
+        self.attention_U2 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Sigmoid()
+        )
+
+        self.fc3 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.ReLU(),
+        )
+        self.attention_V3 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Tanh(),
+        )
+        self.attention_U3 = nn.Sequential(
+            nn.Linear(self.D, self.D),
+            nn.Sigmoid()
+        )
+
+        self.attention_weights1 = nn.Linear(self.D, 1)
+        self.attention_weights2 = nn.Linear(self.D, 1)
+        self.attention_weights3 = nn.Linear(self.D, 1)
+
+        self.fc4 = nn.Sequential(nn.Linear(self.D, self.num_classes))
+
+    def forward(self, x):
+        ################
+        x1 = x.squeeze(0)
+        x1 = self.feature_extractor(x1)
+        x1 = self.fc1(x1)
+        if self.use_dropout:
+            x1 = nn.Dropout(self.n_dropout)(x1)
+        # -------
+        A_V1 = self.attention_V1(x1)  # N x D
+        A_U1 = self.attention_U1(x1)  # N x D
+        A1 = self.attention_weights1(torch.mul(A_V1, A_U1))
+        A1 = torch.transpose(A1, 1, 0)
+        A1 = F.softmax(A1, dim=1)  # ~ensure weights sum up  to unity
+        m1 = torch.mm(A1, x1)  # ~attention pooling
+        m1 = m1.view(-1, 1 * self.D)
+
+        ################
+        x2 = self.fc2(x1)
+        if self.use_dropout:
+            x2 = nn.Dropout(self.n_dropout)(x2)
+        # -------
+        A_V2 = self.attention_V2(x1)  # N x D
+        A_U2 = self.attention_U2(x1)  # N x D
+        A2 = self.attention_weights2(torch.mul(A_V2, A_U2))
+        A2 = torch.transpose(A2, 1, 0)
+        A2 = F.softmax(A2, dim=1)  # ~ensure weights sum up  to unity
+        m2 = torch.mm(A2, x1)  # ~attention pooling
+        m2 = m2.view(-1, 1 * self.D)
+        m2 += m1
+        ################
+        x3 = self.fc3(x2)
+        if self.use_dropout:
+            x3 = nn.Dropout(self.n_dropout)(x3)
+        # -------
+        A_V3 = self.attention_V3(x1)  # N x D
+        A_U3 = self.attention_U3(x1)  # N x D
+        A3 = self.attention_weights3(torch.mul(A_V3, A_U3))
+        A3 = torch.transpose(A3, 1, 0)
+        A3 = F.softmax(A3, dim=1)  # ~ensure weights sum up  to unity
+        m3 = torch.mm(A3, x1)  # ~attention pooling
+        m3 = m3.view(-1, 1 * self.D)
+        m3 += m2
+
+        result = self.fc4(m3)
+
+        return result, A1, A2, A3
+# -----------------------------------------------------------------
+
+
+# ---------------------------TRANS MIL-----------------------------
+class TransLayer(nn.Module):
+
+    def __init__(self, norm_layer=nn.LayerNorm, dim=512):
+        super().__init__()
+        self.norm = norm_layer(dim)
+        self.attn = NystromAttention(
+                                    dim=dim,
+                                    dim_head=dim//8,
+                                    heads=8,
+                                    num_landmarks=dim//2,
+                                    pinv_iterations=6,
+                                    residual=True,
+                                    dropout=0.1
+        )
+
+    def forward(self, x):
+        x = x + self.attn(self.norm(x))
+        return x
+
+
+class PPEG(nn.Module):
+    def __init__(self, dim=512):
+        super(PPEG, self).__init__()
+        self.proj = nn.Conv2d(dim, dim, 7, 1, 7//2, groups=dim)
+        self.proj1 = nn.Conv2d(dim, dim, 5, 1, 5//2, groups=dim)
+        self.proj2 = nn.Conv2d(dim, dim, 3, 1, 3//2, groups=dim)
+
+    def forward(self, x, H, W):
+        B, _, C = x.shape
+        cls_token, feat_token = x[:, 0], x[:, 1:]
+        cnn_feat = feat_token.transpose(1, 2).view(B, C, H, W)
+        x = self.proj(cnn_feat)+cnn_feat+self.proj1(cnn_feat)\
+            + self.proj2(cnn_feat)
+        x = x.flatten(2).transpose(1, 2)
+        x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
+        return x
+
+
+class TransMIL(nn.Module):
+    def __init__(self, num_classes,
+                 pretrained=True):
+
+        super(TransMIL, self).__init__()
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+
+        self.pos_layer = PPEG(dim=512)
+        # self._fc1 = nn.Sequential(nn.Linear(1024, 512), nn.ReLU())
+        self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
+        self.n_classes = num_classes
+        self.layer1 = TransLayer(dim=512)
+        self.layer2 = TransLayer(dim=512)
+        self.norm = nn.LayerNorm(512)
+        self._fc2 = nn.Linear(512, self.n_classes)
+
+    def forward(self, x):
+
+        bs, num_instances, _, _, _ = x.shape
+        my_device = x.device
+
+        x1 = x.squeeze(0)  # [B*n, ch, h, w]
+        x1 = self.feature_extractor(x1)  # [B*n, 512]
+
+        # h = self.fc(x1.view(bs, num_instances, 512))  # [B, n, 512]
+        h = x1.view(bs, num_instances, 512)
+        # ---->pad
+        H = h.shape[1]
+        _H, _W = int(np.ceil(np.sqrt(H))), int(np.ceil(np.sqrt(H)))
+        add_length = _H * _W - H
+        h = torch.cat([h, h[:, :add_length, :]], dim=1)  # [B, N, 512]
+
+        # ---->cls_token
+        B = h.shape[0]
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        cls_tokens = cls_tokens.to(my_device)
+        h = torch.cat((cls_tokens, h), dim=1)
+
+        # ---->Translayer x1
+        h = self.layer1(h)  # [B, N, 512]
+
+        # ---->PPEG
+        h = self.pos_layer(h, _H, _W)  # [B, N, 512]
+
+        # ---->Translayer x2
+        h = self.layer2(h)  # [B, N, 512]
+
+        # ---->cls_token
+        h = self.norm(h)[:, 0]
+
+        # ---->predict
+        logits = self._fc2(h)  # [B, n_classes]
+        Y_hat = torch.argmax(logits, dim=1)
+        Y_prob = F.softmax(logits, dim=1)
+
+        return logits, Y_hat, Y_prob
