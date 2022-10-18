@@ -15,7 +15,45 @@ class Identity(nn.Module):
         return x
 
 
-# ----------------------------GATED MIL----------------------------
+class TransLayer(nn.Module):
+
+    def __init__(self, norm_layer=nn.LayerNorm, dim=512):
+        super().__init__()
+        self.norm = norm_layer(dim)
+        self.attn = NystromAttention(
+                                    dim=dim,
+                                    dim_head=dim//8,
+                                    heads=8,
+                                    num_landmarks=dim//2,
+                                    pinv_iterations=6,
+                                    residual=True,
+                                    dropout=0.1
+        )
+
+    def forward(self, x):
+        x = x + self.attn(self.norm(x))
+        return x
+
+
+class PPEG(nn.Module):
+    def __init__(self, dim=512):
+        super(PPEG, self).__init__()
+        self.proj = nn.Conv2d(dim, dim, 7, 1, 7//2, groups=dim)
+        self.proj1 = nn.Conv2d(dim, dim, 5, 1, 5//2, groups=dim)
+        self.proj2 = nn.Conv2d(dim, dim, 3, 1, 3//2, groups=dim)
+
+    def forward(self, x, H, W):
+        B, _, C = x.shape
+        cls_token, feat_token = x[:, 0], x[:, 1:]
+        cnn_feat = feat_token.transpose(1, 2).view(B, C, H, W)
+        x = self.proj(cnn_feat)+cnn_feat+self.proj1(cnn_feat)\
+            + self.proj2(cnn_feat)
+        x = x.flatten(2).transpose(1, 2)
+        x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
+        return x
+
+
+# -----------------------GATED MIL---------------------------------
 class GatedMIL(nn.Module):
 
     def __init__(
@@ -75,7 +113,7 @@ class GatedMIL(nn.Module):
 # -----------------------------------------------------------------
 
 
-# ----------------------Dual Stream MIL----------------------------
+# -------------------Dual Stream MIL-------------------------------
 class DSMIL(nn.Module):
 
     def __init__(
@@ -86,9 +124,17 @@ class DSMIL(nn.Module):
 
         super().__init__()
 
+        # self.D = self.num_features
+        self.Q_dim = 128
+        self.is_pe = True
+        self.cat = True
+
         self.feature_extractor = models.resnet18(pretrained=pretrained)
         self.num_features = self.feature_extractor.fc.in_features
         self.feature_extractor.fc = Identity()
+
+        self.positional_encoder = PositionalEncoding(d=self.num_features,
+                                                     dropout=0., max_len=64)
 
         self.IC_fc = nn.Linear(self.num_features, num_classes)
 
@@ -97,12 +143,12 @@ class DSMIL(nn.Module):
                                                self.num_features),
                                      nn.ReLU())
 
-            self.q = nn.Sequential(nn.Linear(self.num_features, 128),
+            self.q = nn.Sequential(nn.Linear(self.num_features, self.Q_dim),
                                    nn.Tanh())
 
         else:
             self.lin = nn.Identity()
-            self.q = nn.Linear(self.num_features, 128)
+            self.q = nn.Linear(self.num_features, self.Q_dim)
 
         self.v = nn.Sequential(nn.Dropout(0.),
                                nn.Linear(self.num_features, self.num_features))
@@ -110,17 +156,23 @@ class DSMIL(nn.Module):
         self.fcc = nn.Conv1d(num_classes, num_classes,
                              kernel_size=self.num_features)
 
-    def forward(self, x):
+    def forward(self, x, position_coords):
         # bs-batch, N-num_instances, K-fts_per_inst CH-channels W/H-wdth/hght
         bs, num_instances, ch, h, w = x.shape
-        # device = x.device
+        device = x.device
 
         x = x.view(bs*num_instances, ch, h, w)  # x: N bs x CH x W x W
         feats = self.feature_extractor(x)  # feats: N bs x CH' x W' x W'
-        feats = feats.view(bs, num_instances, -1)  # bs x N x K
+        feats = feats.view(bs, num_instances, -1)  # bs x N x num_feats
         c = self.IC_fc(feats)  # bs x N x C
 
-        feats = self.lin(feats)
+        feats = self.lin(feats)  # bs x N x num_feats
+
+        if self.is_pe:
+            feats = feats.squeeze(0)  # N x num_feats
+            feats = self.positional_encoder(feats, position_coords)  # N x n_ft
+            feats = feats.unsqueeze(0)  # bs x N x num_feats
+
         V = self.v(feats)  # bs x N x V
         Q = self.q(feats).view(bs, num_instances, -1)  # bs x N x Q
 
@@ -131,9 +183,9 @@ class DSMIL(nn.Module):
         q_max = self.q(m_feats)  # bs x C x Q
 
         A = torch.matmul(Q, q_max.transpose(1, 2))  # bs x N x C
-        A = F.softmax(A, dim=1)
-        # A = F.softmax(A / torch.sqrt(torch.tensor(
-        #     Q.shape[2], dtype=torch.float32, device=device)), dim=1)
+        # A = F.softmax(A, dim=1)
+        A = F.softmax(A / torch.sqrt(torch.tensor(
+            Q.shape[1], dtype=torch.float32, device=device)), dim=1)
 
         B = torch.matmul(A.transpose(1, 2), V)  # bs x C x V
         # B = B.view(1, B.shape[0], B.shape[1])  # 1 x C x V
@@ -147,7 +199,7 @@ class DSMIL(nn.Module):
 # -----------------------------------------------------------------
 
 
-# ---------------------------SIMPLE MIL----------------------------
+# ----------------------SIMPLE MIL---------------------------------
 class SimpleMIL(nn.Module):
 
     def __init__(
@@ -197,7 +249,7 @@ class SimpleMIL(nn.Module):
 # -----------------------------------------------------------------
 
 
-# ------------------------MA-MIL------------------------------------
+# ------------------------MA-MIL-----------------------------------
 class MultiAttentionMIL(nn.Module):
     def __init__(self, num_classes, pretrained,
                  use_dropout=False, n_dropout=0.4):
@@ -286,7 +338,7 @@ class MultiAttentionMIL(nn.Module):
 # -----------------------------------------------------------------
 
 
-# ------------------------GMA-MIL------------------------------------
+# ------------------------GMA-MIL----------------------------------
 class GatedMultiAttentionMIL(nn.Module):
     def __init__(self, num_classes, pretrained,
                  use_dropout=False, n_dropout=0.4):
@@ -396,45 +448,7 @@ class GatedMultiAttentionMIL(nn.Module):
 # -----------------------------------------------------------------
 
 
-# ---------------------------TRANS MIL-----------------------------
-class TransLayer(nn.Module):
-
-    def __init__(self, norm_layer=nn.LayerNorm, dim=512):
-        super().__init__()
-        self.norm = norm_layer(dim)
-        self.attn = NystromAttention(
-                                    dim=dim,
-                                    dim_head=dim//8,
-                                    heads=8,
-                                    num_landmarks=dim//2,
-                                    pinv_iterations=6,
-                                    residual=True,
-                                    dropout=0.1
-        )
-
-    def forward(self, x):
-        x = x + self.attn(self.norm(x))
-        return x
-
-
-class PPEG(nn.Module):
-    def __init__(self, dim=512):
-        super(PPEG, self).__init__()
-        self.proj = nn.Conv2d(dim, dim, 7, 1, 7//2, groups=dim)
-        self.proj1 = nn.Conv2d(dim, dim, 5, 1, 5//2, groups=dim)
-        self.proj2 = nn.Conv2d(dim, dim, 3, 1, 3//2, groups=dim)
-
-    def forward(self, x, H, W):
-        B, _, C = x.shape
-        cls_token, feat_token = x[:, 0], x[:, 1:]
-        cnn_feat = feat_token.transpose(1, 2).view(B, C, H, W)
-        x = self.proj(cnn_feat)+cnn_feat+self.proj1(cnn_feat)\
-            + self.proj2(cnn_feat)
-        x = x.flatten(2).transpose(1, 2)
-        x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
-        return x
-
-
+# -----------------------TRANS MIL---------------------------------
 class TransMIL(nn.Module):
     def __init__(self, num_classes,
                  pretrained=True):
@@ -494,3 +508,161 @@ class TransMIL(nn.Module):
         Y_prob = F.softmax(logits, dim=1)
 
         return logits, Y_hat, Y_prob
+# -----------------------------------------------------------------
+
+
+# -----------------------TO DO---------------------------------
+class PositionalEncoding(nn.Module):
+    """Positional encoding.
+       d - dimension of the output embedding space
+       """
+    def __init__(self, d, dropout, max_len=1000):
+        super().__init__()
+        self.d = d
+        self.dropout = nn.Dropout(dropout)
+        # Create a long enough P
+        self.P = torch.zeros((max_len, max_len, self.d))
+
+        # temperature is user-defined scalar
+        # (set to 10k by authors of Attention is all You Need)
+        temperature = 10_000
+
+        # i,j is an integer in [0, d/4),
+        # where d is the size of the ch dimension
+        # half channels encoded with pos_x and second half with pos_y ??
+        i = torch.arange(0, self.d, 4, dtype=torch.float32)
+        j = torch.arange(0, self.d, 4, dtype=torch.float32)
+
+        # x, y is an integer in [0, max_len],
+        # where max_len is long enough
+        # (x,y) is a point in 2d space
+        x = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1)
+        y = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1)
+
+        pos_x = x / torch.pow(temperature, i / d)
+        pos_y = y / torch.pow(temperature, j / d)
+
+        # P - matrix of postional encodings
+        self.P[:, :, 0:self.d//2:2] = torch.sin(pos_x)
+        self.P[:, :, 1:self.d//2:2] = torch.cos(pos_x)
+        self.P[:, :, (0+self.d//2)::2] = torch.sin(pos_y)
+        self.P[:, :, (1+self.d//2)::2] = torch.cos(pos_y)
+        '''
+        PE(x,y,2i) = sin(x/10000^(4i/D))
+        PE(x,y,2i+1) = cos(x/10000^(4i/D))
+        PE(x,y,2j+D/2) = sin(y/10000^(4j/D))
+        PE(x,y,2j+1+D/2) = cos(y/10000^(4j/D))
+        '''
+    def forward(self, X, position_coords, cat):
+        position_encodings = torch.zeros(X.shape[0], self.d)
+        for i in range(X.shape[0]):
+            position_coords = position_coords.squeeze(0)  # remove batch dim
+            position_encodings[i] = self.P[position_coords[i][0],
+                                           position_coords[i][1]]
+        if cat:
+            X = torch.cat((X, position_encodings.to(X.device)), dim=1)
+        else:
+            X = X + position_encodings.to(X.device)
+        return self.dropout(X)
+
+
+class APE_SAMIL(nn.Module):
+    def __init__(self, num_classes, pretrained,
+                 use_dropout=False, n_dropout=0.4):
+
+        super(APE_SAMIL, self).__init__()
+        self.num_classes = num_classes
+        self.use_dropout = use_dropout
+        self.n_dropout = n_dropout
+        self.gated = True
+        self.cat = True
+        self.D = 128  # num hiddens
+        self.K = 1
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+
+        # for larger images or more overlaps set max_len appropiately
+        self.positional_encoder = PositionalEncoding(d=self.num_features,
+                                                     dropout=0., max_len=64)
+        if self.cat:
+            self.num_features *= 2
+            # self.D *= 2
+
+        self.fc_q = nn.Sequential(
+            nn.Linear(self.num_features, self.D),
+            nn.ReLU()
+        )
+        self.fc_k = nn.Sequential(
+            nn.Linear(self.num_features, self.D),
+            nn.ReLU()
+        )
+        self.fc_v = nn.Sequential(
+            nn.Linear(self.num_features, self.D),
+            nn.ReLU()
+        )
+
+        if self.gated:
+            self.attention_V = nn.Sequential(
+                nn.Linear(self.D, self.D),
+                nn.Tanh()
+            )
+
+            self.attention_U = nn.Sequential(
+                nn.Linear(self.D, self.D),
+                nn.Sigmoid()
+            )
+            self.attention_weights = nn.Linear(self.D, self.K)
+
+        else:
+            self.attention = nn.Sequential(nn.Linear(self.D, self.D),
+                                           nn.Tanh(),
+                                           nn.Linear(self.D, self.K)
+                                           )
+
+        self.classifier = nn.Linear(self.D*self.K, num_classes)
+
+    def forward(self, x, position_coords):
+
+        device = x.device
+        # feature extraction
+        x = x.squeeze(0)  # N x CH x H x W
+        H = self.feature_extractor(x)  # N x NUM_FEATS
+        # positional encoding
+        H = self.positional_encoder(H, position_coords,
+                                    self.cat)  # N x NUM_FEATS(2)
+
+        # self-attention
+        Q = self.fc_q(H)  # N x D
+        K = self.fc_k(H)  # N x D
+        V = self.fc_v(H)  # N x D
+
+        # Q = self.positional_encoder(Q, position_coords,
+        #                             self.cat)
+        # K = self.positional_encoder(K, position_coords,
+        #                             self.cat)
+        # V = self.positional_encoder(V, position_coords,
+        #                             self.cat)
+
+        sA = torch.mm(Q, K.transpose(1, 0))  # N x N
+        sA = F.softmax(sA / torch.sqrt(torch.tensor(
+            Q.shape[0], dtype=torch.float32, device=device)), dim=0)  # N x N
+        AV = torch.mm(sA.transpose(1, 0), V)  # N x D
+
+        # attention pooling
+        if self.gated:
+            A_V = self.attention_V(AV)  # N x D
+            A_U = self.attention_U(AV)  # N x D
+            A = self.attention_weights(torch.mul(A_V, A_U))  # N x K
+        else:
+            A = self.attention(AV)  # N x K
+
+        A = A.transpose(1, 0)  # K x N
+        A = F.softmax(A, dim=1)  # K x N
+        M = torch.mm(A, AV)  # K x D
+        M = M.view(1, -1)  # KD x 1
+
+        # classifier
+        y = self.classifier(M)  # 1 x 1
+        return y, A, sA
