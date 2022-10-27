@@ -21,6 +21,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         self.root = root
         self.view = view
         self.df = df
+        self.multimodal = True
         self.views, self.dicoms, self.class_name = self.__select_view()
         self.transforms = transforms
         self.convert_to_bag = conv_to_bag
@@ -29,13 +30,33 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         os.chdir(os.path.join(self.root, self.class_name[idx]))
-        dcm = dcmread(self.dicoms[idx])
 
-        img = dcm.pixel_array
-        height, width = img.shape
-        img = img/4095
-        img = img_as_float32(img)
-        img = torch.from_numpy(img).unsqueeze(0).repeat(3, 1, 1)
+        if self.multimodal:
+            dcm = dcmread(self.dicoms[idx][0])
+            img_CC = dcm.pixel_array
+            height, width = img_CC.shape
+            img_CC = img_CC/4095
+            img_CC = img_as_float32(img_CC)
+            img_CC = torch.from_numpy(img_CC).unsqueeze(0).repeat(3, 1, 1)
+
+            dcm = dcmread(self.dicoms[idx][1])
+            img_MLO = dcm.pixel_array
+            img_MLO = img_MLO/4095
+            img_MLO = img_as_float32(img_MLO)
+            img_MLO = torch.from_numpy(img_MLO).unsqueeze(0).repeat(3, 1, 1)
+
+            img = torch.cat((img_CC, img_MLO), dim=1)
+            #####
+            # t = T.Resize((3518, 2800//2))
+            # img = t(img)
+            #####
+        else:
+            dcm = dcmread(self.dicoms[idx])
+            img = dcm.pixel_array
+            height, width = img.shape
+            img = img/4095
+            img = img_as_float32(img)
+            img = torch.from_numpy(img).unsqueeze(0).repeat(3, 1, 1)
         # img = img/torch.max(img)
 
         target = {}
@@ -73,9 +94,9 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                     t = T.RandomHorizontalFlip(p=1.0)
                     img = t(img)
 
-                instances_scale_1, t_id_scale_1 = convert_img_to_bag(
+                instances_scale_1, t_id_scale_1, t_cord1 = convert_img_to_bag(
                     img, self.tiles[0], self.bag_size)
-                instances_scale_2, t_id_scale_2 = convert_img_to_bag(
+                instances_scale_2, t_id_scale_2, t_cord2 = convert_img_to_bag(
                     img, self.tiles[1], self.bag_size)
                 t = T.Resize(224)
                 instances_scale_2 = t(instances_scale_2)
@@ -90,13 +111,24 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                 target['tiles_indices'] = [t_id_scale_1, t_id_scale_2]
             # Single scale bag instances
             else:
-                img, t_id = convert_img_to_bag(img, self.tiles, self.bag_size)
+                img, t_id, t_cord = convert_img_to_bag(img, self.tiles,
+                                                       self.bag_size)
                 target['tiles_indices'] = t_id
+                target['tile_cords'] = t_cord
+
                 if self.transforms is not None:
+
+                    # prob_cj = random.choice([0, 1])
+                    # color_jitter = T.ColorJitter(0.25, 0.25, 0.25, 0.25)
+                    # gaussian_blur = T.GaussianBlur(kernel_size=23,
+                    #                                sigma=(0.1, 2.0))
+                    # jtt_gss = T.Compose([color_jitter, gaussian_blur])
+
                     for i, image in enumerate(img):
                         angle = random.choice([-90, 0, 90, 180])
                         img[i] = TF.rotate(img[i], angle)
-                        # img[i] = self.transforms(img[i])
+                        # if prob_cj:
+                        # img[i] = jtt_gss(img[i])
                     img = self.transforms(img)
 
             # mean = [0.2347, 0.2347, 0.2347]
@@ -115,26 +147,37 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         '''Select only given view(s) and return list of filenames
            and class names(folder names)
         '''
-        # 0x0018, 0x5101 - View Position
         class_names_list = []
         filenames_list = []
         view_list = []
         patients = self.df.to_dict('records')
-        for patient in patients:
-            for item in range(len(patient['class'])):
-                for v in self.view:
-                    if patient['view'][item].__contains__(v):
-                        class_names_list.append(patient['class'][item])
-                        filenames_list.append(patient['filename'][item])
-                        view_list.append(patient['view'][item])
-        # if patient['class'][item].find('Malignant') is not -1:
-        #     class_names_list.append(patient['class'][item])
-        #     filenames_list.append(patient['filename'][item])
-        #     view_list.append(patient['view'][item])
-        # if patient['class'][item].find('Lymph_nodes') is not -1:
-        #     class_names_list.append(patient['class'][item])
-        #     filenames_list.append(patient['filename'][item])
-        #     view_list.append(patient['view'][item])
+
+        if self.multimodal:
+            for patient in patients:
+                if 'LCC' and 'LMLO' in patient['view']:
+                    class_names_list.append(patient['class'][0])
+                    filenames_list.append(patient['filename'][0:2])
+                    view_list.append('Left')
+                if 'RCC' and 'RMLO' in patient['view']:
+                    class_names_list.append(patient['class'][-1])
+                    filenames_list.append(patient['filename'][-2:])
+                    view_list.append('Rigth')
+        else:
+            for patient in patients:
+                for item in range(len(patient['class'])):
+                    for v in self.view:
+                        if patient['view'][item].__contains__(v):
+                            class_names_list.append(patient['class'][item])
+                            filenames_list.append(patient['filename'][item])
+                            view_list.append(patient['view'][item])
+            # if patient['class'][item].find('Malignant') is not -1:
+            #     class_names_list.append(patient['class'][item])
+            #     filenames_list.append(patient['filename'][item])
+            #     view_list.append(patient['view'][item])
+            # if patient['class'][item].find('Lymph_nodes') is not -1:
+            #     class_names_list.append(patient['class'][item])
+            #     filenames_list.append(patient['filename'][item])
+            #     view_list.append(patient['view'][item])
 
         return view_list, filenames_list, class_names_list
 
