@@ -26,13 +26,13 @@ def get_tiles(h, w,
     X_points = start_points(w, wTile, overlap)
     Y_points = start_points(h, hTile, overlap)
 
-    tiles = np.zeros((len(Y_points)*len(X_points), 4), dtype=np.int)
+    tiles = np.zeros((len(Y_points)*len(X_points), 6), np.int)
 
     k = 0
-    for i in Y_points:
-        for j in X_points:
+    for i, y_cord in enumerate(Y_points):
+        for j, x_cord in enumerate(X_points):
             # split = image[i:i+hTile, j:j+wTile]
-            tiles[k] = (i, j, int(hTile), int(wTile))
+            tiles[k] = (y_cord, x_cord, hTile, wTile, i, j)
             k += 1
     return tiles
 
@@ -64,26 +64,37 @@ def convert_img_to_bag(image, tiles, bag_size):
     if bag_size == 'const50':
         instances = new_img[sorted_tiles_idx[:50]]
         instances_idx = sorted_tiles_idx[:50]
-        instances, instances_idx = shuffle(instances, instances_idx)
-    elif bag_size == 'const100':
+        instances_cords = tiles[instances_idx, 4:6]
+        instances, instances_idx, instances_cords = shuffle(
+            instances, instances_idx, instances_cords)
+    elif bag_size == 'const150':
         instances = new_img[sorted_tiles_idx[:100]]
         instances_idx = sorted_tiles_idx[:100]
-        instances, instances_idx = shuffle(instances, instances_idx)
+        instances_cords = tiles[instances_idx, 4:6]
+        instances, instances_idx, instances_cords = shuffle(
+            instances, instances_idx, instances_cords)
     elif bag_size == 'const300':
         instances = new_img[sorted_tiles_idx[:300]]
         instances_idx = sorted_tiles_idx[:300]
-        instances, instances_idx = shuffle(instances, instances_idx)
+        instances_cords = tiles[instances_idx, 4:6]
+        instances, instances_idx, instances_cords = shuffle(
+            instances, instances_idx, instances_cords)
     elif bag_size is not -1:
         instances = new_img[sorted_tiles_idx[:px_non_zero_75pc]]
         instances_idx = sorted_tiles_idx[:px_non_zero_75pc]
-        instances, instances_idx = shuffle(instances, instances_idx)
+        instances_cords = tiles[instances_idx, 4:6]
+        instances, instances_idx, instances_cords = shuffle(
+            instances, instances_idx, instances_cords)
         if px_non_zero_75pc > bag_size:
             instances = instances[:bag_size]
             instances_idx = instances_idx[:bag_size]
+            instances_cords = tiles[instances_idx, 4:6]
     elif bag_size == -1:
         instances = new_img[sorted_tiles_idx[:px_non_zero_75pc]]
         instances_idx = sorted_tiles_idx[:px_non_zero_75pc]
-        instances, instances_idx = shuffle(instances, instances_idx)
+        instances_cords = tiles[instances_idx, 4:6]
+        instances, instances_idx, instances_cords = shuffle(
+            instances, instances_idx, instances_cords)
     # elif bag_size < px_non_zero_75pc:
     #     instances = new_img[sorted_tiles_idx[:px_non_zero_75pc]]
     #     instances_idx = sorted_tiles_idx[:px_non_zero_75pc]
@@ -96,4 +107,4 @@ def convert_img_to_bag(image, tiles, bag_size):
     #     instances_idx = sorted_tiles_idx[:bag_size]
     #     instances, instances_idx = shuffle(instances, instances_idx)
 
-    return instances, instances_idx
+    return instances, instances_idx, instances_cords
