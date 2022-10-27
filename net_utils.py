@@ -35,6 +35,8 @@ def train_net(net, dataloaders,
     for epoch in range(num_epochs):
         print(f'Epoch {epoch+1 :3}/{num_epochs}', end=' ')
 
+        pe_ar_list = ['APE_SAMIL', 'DSMIL', 'GatedMIL']
+
         for phase in ["train", "val"]:
             if phase == "train":
                 net.train()
@@ -50,7 +52,10 @@ def train_net(net, dataloaders,
                 optimizer.zero_grad()
                 # forward pass
                 with torch.set_grad_enabled(phase == 'train'):
-                    outputs = net(images)
+                    if net.__class__.__name__ in pe_ar_list:
+                        outputs = net(images, targets["tile_cords"])
+                    else:
+                        outputs = net(images)
                     if str(criterion) == 'CrossEntropyLoss()':
                         _, preds = torch.max(outputs[0].reshape(-1, 4), 1)
 
@@ -72,6 +77,7 @@ def train_net(net, dataloaders,
                         #     ).cpu().numpy().round()
                         preds = torch.sigmoid(outputs[0]).reshape(-1).detach(
                               ).cpu().numpy().round()
+
                         if type(net).__name__ == 'DSMIL':
                             max_prediction, _ = torch.max(outputs[3], 1)
 
@@ -85,7 +91,6 @@ def train_net(net, dataloaders,
 
                             loss_total = 0.5*loss_bag + 0.5*loss_max
                             loss = loss_total.mean()
-
                         else:
                             loss = criterion(torch.sigmoid(
                                 outputs[0]).reshape(-1), labels)
@@ -167,13 +172,18 @@ def test_net(net, data_loaders: dict, class_names: list, device):
     preds = np.array([])
     true = np.array([])
 
-    for batches in data_loaders["test"]:
+    pe_ar_list = ['APE_SAMIL', 'DSMIL', 'GatedMIL']
 
-        images = batches[0].to(device)
-        targets = batches[1]['labels'].to(device)
+    for images, targets in data_loaders["test"]:
+
+        images = images.to(device)
+        labels = targets['labels'].to(device)
 
         with torch.no_grad():
-            outputs = net(images)
+            if net.__class__.__name__ in pe_ar_list:
+                outputs = net(images, targets["tile_cords"])
+            else:
+                outputs = net(images)
             if len(outputs) > 1:
                 outputs = outputs[0]
             if outputs.size(dim=1) == 1:
@@ -183,7 +193,7 @@ def test_net(net, data_loaders: dict, class_names: list, device):
             elif outputs.size(dim=1) == 4:
                 pred = outputs.softmax(1).argmax(1).cpu()
                 preds = np.append(preds, pred)
-            true = np.append(true, targets.cpu())
+            true = np.append(true, labels.cpu())
 
     figures = {}
     reports = {}
@@ -210,7 +220,7 @@ def test_net(net, data_loaders: dict, class_names: list, device):
                                                    target_names=class_names,
                                                    output_dict=False)
 
-    return reports, figures, best_threshold
+    return reports, figures, best_threshold, roc_auc
 
 
 def roc_curve_plot(true, scores: float, show: bool):
