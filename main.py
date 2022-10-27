@@ -2,7 +2,7 @@
 import torch
 from torchvision import transforms as T
 from my_drawings import my_show_image, my_show_training_results
-from my_stats import make_df  # , show_stats
+from my_stats import make_df, make_img_stats_dict, box_plot
 from choose_NCOS import choose_NCOS
 from net_utils import train_net, test_net
 from gen_data_loader import gen_data_loader
@@ -18,6 +18,7 @@ import argparse
 import yaml
 import neptune.new as neptune
 import uuid
+import copy
 
 
 # MAKE PARSER AND LOAD PARAMS FROM CONFIG FILE--------------------------------
@@ -67,21 +68,48 @@ overlap_train = config['data_sets']['overlap_train_val']
 overlap_val_test = config['data_sets']['overlap_val_test']
 
 # TRANSFORMS------------------------------------------------------------------
-transform = T.Compose([  # T.RandomAffine(degrees=(3), translate=(0, 0.1)),
+cj_prob = 0.5
+cj_bright = 0.25
+cj_contrast = 0.25
+cj_sat = 0.25
+cj_hue = 0.
+gaussian_blur_prob = 0.5
+
+input_size = patch_size
+min_scale = 0.8
+
+color_jitter = T.ColorJitter(cj_bright, cj_contrast, cj_sat, cj_hue)
+gaussian_blur = T.GaussianBlur(kernel_size=23, sigma=(0.1, 2.0))
+
+transform = T.Compose([T.RandomAffine(degrees=(90), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip(),
+                       T.RandomResizedCrop(size=input_size,
+                                           scale=(min_scale, 1.0)),
+                       # T.RandomApply([color_jitter], p=cj_prob),
+                       # T.RandomApply([gaussian_blur], p=gaussian_blur_prob)
                        ])
+
 transforms_val_test = None
 tfs = [transform, transforms_val_test, transforms_val_test]
 
 # GET TILES (PATCHES) COORDS (size/overlap)-----------------------------------
-tiles_train = get_tiles(3518, 2800,
+tiles_train = get_tiles(3518*2, 2800,
                         patch_size, patch_size,
                         overlap_train)
-tiles_test_val = get_tiles(3518, 2800,
+tiles_test_val = get_tiles(3518*2, 2800,
                            patch_size, patch_size,
                            overlap_val_test)
 tiles = [tiles_train, tiles_test_val]
+
+# tiles_scale_1 = get_tiles(3518, 2800,
+#                           patch_size, patch_size,
+#                           overlap_train)
+# tiles_scale_2 = get_tiles(3518, 2800,
+#                           patch_size*2, patch_size*2,
+#                           overlap_val_test)
+# tiles = [tiles_scale_1, tiles_scale_2]
+# tiles = [tiles, tiles]
 # %%
 # MAKE & SAVE NEW DATASET OR LOAD CURRENTLY SAVED ONE-------------------------
 df = make_df(root,
@@ -118,6 +146,39 @@ if 0:  # find column to crop
 if 0:
     for i in range(1681):
         my_show_image(ds['test'][i], with_marks=True)
+# %%
+# IMAGE STATS - MEAN - STD - VAR - AREA
+if 0:
+    stats_dict = make_img_stats_dict(ds)
+if 0:
+    box_plot(stats_dict, k='area')
+# %%
+if 0:
+    for i in range(30):
+        i = i+30
+        if ds['test'][i][1]['class'] == 'Malignant':
+            my_show_image(ds['test'][i], with_marks=True, format_type='svg')
+# %%
+if 0:
+    import os
+    from pydicom import dcmread
+    dir = root
+    os.chdir(dir)
+    for folder in os.listdir(os.getcwd()):
+        os.chdir(os.path.join(dir, folder))
+        for file in os.listdir(os.getcwd()):
+            dcm = dcmread(file)
+            if dcm.ManufacturerModelName != 'Mammomat Inspiration':
+                print(dcm.ManufacturerModelName)
+                print(folder, end='/')
+                print(file)
+
+            # print(dcm.AcquisitionDate, end=' ')
+            # print(dcm.WindowCenter, end=' ')
+            # print(dcm.WindowWidth, end=' ')
+            # print(dcm.RescaleSlope, end=' ')
+            # print(dcm.RescaleIntercept)
+            # print(dcm.BodyPartThickness)
 # %%
 # LEARNING RATE FINDER FOR ONE-CYCLE POLICY-----------------------------------
 if 0:
@@ -159,10 +220,60 @@ net, criterion, optimizer, scheduler = choose_NCOS(
     optimizer_type=optimizer_type,
     lr=lr, wd=wd,
     scheduler=scheduler_type)
+
+# %%
+# LOAD CLR FEATURE  EXTRACTOR / DEACT BACTH NORM------------------------------
+if 1:
+    from torch import nn
+
+    def deactivate_batchnorm(net):
+        if isinstance(net, nn.BatchNorm2d):
+            net.track_running_stats = False
+            net.running_mean = None
+            net.running_var = None
+            # net.momentum = 0.01
+
+    net.apply(deactivate_batchnorm)
+if 1:
+    # fn = 'clr_lr-1loss2.578792095184326'
+    fn = 'clr_lr-0.001loss2.6703104972839355'
+    model_load_path = ('/media/dysk/student2/mammografia/Zapisy/'
+                       + 'clr_saved_models/' + fn)
+    sd = torch.load(model_load_path, map_location=device)
+    net_sd = copy.deepcopy(net.state_dict())
+    # fe = 'feature_extractor'
+    fe = 'backbone'
+
+    net_fe_layers = list()
+    for name, param in net_sd.items():
+        if 'feature_extractor' in name:
+            net_fe_layers.append(name)
+
+    for i, (name, param) in enumerate(sd.items()):
+        if fe in name:
+            param = param.data
+            net_sd[net_fe_layers[i]].copy_(param)
+    net.load_state_dict(net_sd)
+
+    # ct = 0
+    # gct = 0
+    # for child in net.children():
+    #     ct += 1
+    #     if ct == 1:
+    #         for grandchild in child.children():
+    #             gct += 1
+    #             if gct > 7:
+    #                 for param in grandchild.parameters():
+    #                     param.requires_grad = False
+
+    net.to(device)
 # %%
 # TRAIN NETWORK---------------------------------------------------------------
-run = neptune.init(project='jakub-buler/BCC')
-run['config'] = config
+if 1:
+    run = neptune.init(project='ProjektMMG/Mammografia')
+    run['config'] = config
+else:
+    run = None
 
 state_dict_BL, state_dict_BACC, loss_stats, accuracy_stats = train_net(
     net, data_loaders,
@@ -175,18 +286,25 @@ state_dict_BL, state_dict_BACC, loss_stats, accuracy_stats = train_net(
 if 0:
     my_show_training_results(accuracy_stats, loss_stats)
 # %%
+# TEST NETWORK----------------------------------------------------------------
 if 1:
     net_BACC = net
     net_BACC.load_state_dict(state_dict_BACC)
-    metrics, cm = test_net(net_BACC, data_loaders, class_names,
-                           device, drawing_num=0)
+    metrics, figures, best_th, roc_auc = test_net(net_BACC, data_loaders,
+                                                  class_names, device)
     unique_filename1 = str(uuid.uuid4())
     model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
                        + 'neptune_saved_models/' + unique_filename1)
-
-    run['test/BACC/metrics'].log(metrics)
-    run['test/BACC/conf_mx'].upload(cm)
-    run['test/BACC/file_name'] = unique_filename1
+    if run is not None:
+        run['test/BACC/metrics'].log(metrics['th_05'])
+        run['test/BACC/conf_mx'].upload(figures['cm_th_05'])
+        run['test/BACC/auc_roc'] = roc_auc
+        if criterion_type == 'bce':
+            run['test/BACC/th_best'] = best_th
+            run['test/BACC/metrics_th_best'].log(metrics['th_best'])
+            run['test/BACC/conf_mx_th_best'].upload(figures['cm_th_best'])
+            run['test/BACC/roc'].upload(figures['roc'])
+        run['test/BACC/file_name'] = unique_filename1
 
     torch.save(net_BACC.state_dict(), model_save_path)
     del net_BACC
@@ -194,27 +312,35 @@ if 1:
 if 1:
     net_BL = net
     net_BL.load_state_dict(state_dict_BL)
-    metrics, cm = test_net(net_BL, data_loaders, class_names,
-                           device, drawing_num=0)
+    metrics, figures, best_th, roc_auc = test_net(net_BL, data_loaders,
+                                                  class_names, device)
     unique_filename2 = str(uuid.uuid4())
     model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
                        + 'neptune_saved_models/' + unique_filename2)
-
-    run['test/BL/metrics'].log(metrics)
-    run['test/BL/conf_mx'].upload(cm)
-    run['test/BL/file_name'] = unique_filename2
+    if run is not None:
+        run['test/BL/metrics'].log(metrics['th_05'])
+        run['test/BL/conf_mx'].upload(figures['cm_th_05'])
+        if criterion_type == 'bce':
+            run['test/BL/th_best'] = best_th
+            run['test/BL/metrics_th_best'].log(metrics['th_best'])
+            run['test/BL/conf_mx_th_best'].upload(figures['cm_th_best'])
+            run['test/BL/roc'].upload(figures['roc'])
+        run['test/BL/file_name'] = unique_filename2
 
     torch.save(net_BL.state_dict(), model_save_path)
     del net_BL
 
-run.stop()
+
+if run is not None:
+    run['test/auc_roc'] = roc_auc
+    run.stop()
 # %%
 if 0:
-    fn = '54650285-9f0d-4ff8-bb5e-fd2fa05d3904'
-    model_load_path = (
-        '/media/dysk/student2/mammografia/Zapisy/'
-        + 'neptune_saved_models/' + fn)
-    net.load_state_dict(torch.load(model_load_path))
+    std = torch.load('/media/dysk/student2/mammografia/Zapisy/'
+                     + 'neptune_saved_models/'
+                     + 'd855fb28-53c8-416f-9fa6-099f3b5a6b2b',
+                     map_location=device)
+    net.load_state_dict(std)
 # %%
 if 0:
     with torch.no_grad():
@@ -222,35 +348,63 @@ if 0:
             empty_img = torch.zeros(3, 3518, 2800)
             to_show = torch.zeros(3, 3518, 2800)
 
-            ds = next(iter(data_loaders['test']))
-            im = ds[1]['full_image'].squeeze(dim=0)
-            id = ds[1]['tiles_indices'].squeeze(dim=0)
+            d_s = next(iter(data_loaders['test']))
+            im = d_s[1]['full_image'].squeeze(dim=0)
+            id = d_s[1]['tiles_indices'].squeeze(dim=0)
 
             net.eval()
-            input = ds[0].to(device)
-            output, weights = net(input)
-            weights = weights.reshape(-1)
+            input = d_s[0].to(device)
+            output = net(input, d_s[1]['tile_cords'])
+            pred = torch.sigmoid(output[0]).detach().cpu().numpy().round()
+            # _, pred = torch.max(output[0].reshape(-1, 4), 1)
+            # if pred != d_s[1]['labels'] or d_s[1]['labels'] == 0:
+            #     continue
+            weights = output[1]
+
+            # weights = torch.sum(output[2], dim=1)
+            plt.matshow(output[2].cpu().numpy())
+            weights = weights.squeeze()
+
             for item in range(len(id)):
-                h_min, w_min, dh, dw = tiles[1][id][item]
+                h_min, w_min, dh, dw, _, _ = tiles[1][id][item]
                 to_show[:, h_min:h_min+dh, w_min:w_min+dw] = 1
+
+                # if ind[item] == 0:
+                #     empty_img[:, h_min:h_min+dh, w_min:w_min+dw] +=\
+                #         weights[item][pred].detach().cpu()
+
                 empty_img[:, h_min:h_min+dh, w_min:w_min+dw] +=\
                     weights[item].detach().cpu()
 
+                # empty_img[:, h_min:h_min+dh, w_min:w_min+dw] =\
+                #     torch.max(empty_img[:, h_min:h_min+dh, w_min:w_min+dw],
+                #               weights[item].detach().cpu())
+            empty_img -= torch.min(weights.reshape(-1).cpu())
+            empty_img[empty_img < 0] = 0
             empty_img /= torch.max(empty_img.reshape(-1))
-            # empty_img *= im
+            # empty_img[empty_img < 0.9] = 0
+            # empty_img /= torch.max(empty_img.reshape(-1))
+            # empty_img *= 100
 
             fig, ax = plt.subplots(1, 3, figsize=(35//2, 28//2))
             ax[0].imshow(im.permute(1, 2, 0), cmap='gray')
             ax[1].imshow(to_show.permute(1, 2, 0), cmap='gray')
             ax[2].imshow(empty_img.permute(1, 2, 0), cmap='gray')
-            if ds[1]['labels'] == 0.:
-                s_title = ' ' + 'Ground Truth: No Cancer'
-            elif ds[1]['labels'] == 1.:
-                s_title = ' ' + 'Ground Truth: Cancer'
+
+            if d_s[1]['class'][0] == 'Normal':
+                s_title = ' ' + 'Ground Truth: Normal'
+            elif d_s[1]['class'][0] == 'Benign':
+                s_title = ' ' + 'Ground Truth: Benign'
+            elif d_s[1]['class'][0] == 'Malignant':
+                s_title = ' ' + 'Ground Truth: Malignant'
+            elif d_s[1]['class'][0] == 'Lymph_nodes':
+                s_title = ' ' + 'Ground Truth: Lymph_nodes'
             ax[0].set_title(s_title)
             ax[1].set_title("Selected tiles")
-            predictions = ['No cancer', ' Cancer']
-            pred = torch.sigmoid(output[0]).detach().cpu().numpy().round()
+            # predictions = ['No cancer', ' Cancer']
+            predictions = class_names
+            # bce / ce
+            # pred = torch.sigmoid(output[0]).detach().cpu().numpy().round()
             s_title = "Predicted: " + predictions[int(pred[0])]
             ax[2].set_title(s_title)
 # %%
