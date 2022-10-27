@@ -7,6 +7,7 @@ from mil_net_architectures import DSMIL
 from mil_net_architectures import MultiAttentionMIL
 from mil_net_architectures import GatedMultiAttentionMIL
 from mil_net_architectures import TransMIL
+from mil_net_architectures import APE_SAMIL
 from torch.optim import lr_scheduler
 
 
@@ -113,6 +114,13 @@ def choose_NCOS(net_ar: str, device,
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
 
+    elif net_ar == 'test':
+        net = APE_SAMIL(num_classes=num_out,
+                        pretrained=pretrained)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
     # SELECT OPTIMIZER
     if optimizer_type == 'sgd':
         optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9,
@@ -132,5 +140,7 @@ def choose_NCOS(net_ar: str, device,
         TOTAL_STEPS = scheduler['epochs'] * STEPS_PER_EPOCH
         scheduler = lr_scheduler.OneCycleLR(optimizer, max_lr=lr,
                                             total_steps=TOTAL_STEPS)
-
+    elif scheduler['name'] == 'cos-ann':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=5, eta_min=1e-5)
     return net, criterion, optimizer, scheduler
