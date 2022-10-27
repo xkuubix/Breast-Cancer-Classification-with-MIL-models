@@ -64,8 +64,9 @@ class GatedMIL(nn.Module):
         super().__init__()
         self.L = 512  # to ma z resneta wychodzić AMP2d
         self.D = 128  # att inner dim
-        self.K = 1    # minimum patchy?
-
+        self.K = 1
+        self.is_pe = False
+        self.cat = False
         self.feature_extractor = models.resnet18(pretrained=pretrained)
 
         self.num_features = self.feature_extractor.fc.in_features  # selfdod
@@ -75,6 +76,8 @@ class GatedMIL(nn.Module):
         #                                      nn.Linear(self.num_features,
         #                                                self.L),
         #                                      nn.ReLU())
+        self.positional_encoder = PositionalEncoding(d=self.num_features,
+                                                     dropout=0., max_len=64)
 
         self.attention_V = nn.Sequential(
             nn.Linear(self.L, self.D),
@@ -86,13 +89,15 @@ class GatedMIL(nn.Module):
             nn.Sigmoid()
         )
 
+        if self.cat and self.is_pe:
+            self.L *= 2
+
         self.attention_weights = nn.Linear(self.D, self.K)
 
-        self.classifier = nn.Sequential(
-                                        nn.Linear(self.L * self.K,
+        self.classifier = nn.Sequential(nn.Linear(self.L * self.K,
                                                   num_classes))
 
-    def forward(self, x):
+    def forward(self, x, position_coords):
         # x: bs x N x C x W x W
 
         bs, num_instances, ch, w, h = x.shape
@@ -105,6 +110,13 @@ class GatedMIL(nn.Module):
         A = self.attention_weights(torch.mul(A_V, A_U))
         A = torch.transpose(A, 2, 1)  # added ~dim bsxKxN 10
         A = F.softmax(A, dim=2)  # ~ensure weights sum up  to unity ~dim bsxKxN
+
+        if self.is_pe:
+            H = H.squeeze(0)
+            H = self.positional_encoder(H, position_coords,
+                                        self.cat)  # N x NUM_FEATS(2)
+            H = H.unsqueeze(0)
+
         m = torch.matmul(A, H)  # added ~dim bsxKxN ~attention pooling
 
         Y = self.classifier(m)  # added
@@ -126,8 +138,8 @@ class DSMIL(nn.Module):
 
         # self.D = self.num_features
         self.Q_dim = 128
-        self.is_pe = True
-        self.cat = True
+        self.is_pe = False
+        self.cat = False
 
         self.feature_extractor = models.resnet18(pretrained=pretrained)
         self.num_features = self.feature_extractor.fc.in_features
@@ -185,7 +197,7 @@ class DSMIL(nn.Module):
         A = torch.matmul(Q, q_max.transpose(1, 2))  # bs x N x C
         # A = F.softmax(A, dim=1)
         A = F.softmax(A / torch.sqrt(torch.tensor(
-            Q.shape[1], dtype=torch.float32, device=device)), dim=1)
+            Q.shape[2], dtype=torch.float32, device=device)), dim=1)
 
         B = torch.matmul(A.transpose(1, 2), V)  # bs x C x V
         # B = B.view(1, B.shape[0], B.shape[1])  # 1 x C x V
@@ -341,7 +353,7 @@ class MultiAttentionMIL(nn.Module):
 # ------------------------GMA-MIL----------------------------------
 class GatedMultiAttentionMIL(nn.Module):
     def __init__(self, num_classes, pretrained,
-                 use_dropout=False, n_dropout=0.4):
+                 use_dropout=True, n_dropout=0.4):
 
         super(GatedMultiAttentionMIL, self).__init__()
         self.num_classes = num_classes
@@ -575,7 +587,9 @@ class APE_SAMIL(nn.Module):
         self.use_dropout = use_dropout
         self.n_dropout = n_dropout
         self.gated = True
-        self.cat = True
+        self.is_pe = False
+        self.cat = False
+        self.bias = False
         self.D = 128  # num hiddens
         self.K = 1
 
@@ -586,20 +600,20 @@ class APE_SAMIL(nn.Module):
         # for larger images or more overlaps set max_len appropiately
         self.positional_encoder = PositionalEncoding(d=self.num_features,
                                                      dropout=0., max_len=64)
-        if self.cat:
+        if self.cat and self.is_pe:
             self.num_features *= 2
             # self.D *= 2
 
         self.fc_q = nn.Sequential(
-            nn.Linear(self.num_features, self.D),
+            nn.Linear(self.num_features, self.D, self.bias),
             nn.ReLU()
         )
         self.fc_k = nn.Sequential(
-            nn.Linear(self.num_features, self.D),
+            nn.Linear(self.num_features, self.D, self.bias),
             nn.ReLU()
         )
         self.fc_v = nn.Sequential(
-            nn.Linear(self.num_features, self.D),
+            nn.Linear(self.num_features, self.D, self.bias),
             nn.ReLU()
         )
 
@@ -630,8 +644,9 @@ class APE_SAMIL(nn.Module):
         x = x.squeeze(0)  # N x CH x H x W
         H = self.feature_extractor(x)  # N x NUM_FEATS
         # positional encoding
-        H = self.positional_encoder(H, position_coords,
-                                    self.cat)  # N x NUM_FEATS(2)
+        if self.is_pe:
+            H = self.positional_encoder(H, position_coords,
+                                        self.cat)  # N x NUM_FEATS(2)
 
         # self-attention
         Q = self.fc_q(H)  # N x D
@@ -647,8 +662,8 @@ class APE_SAMIL(nn.Module):
 
         sA = torch.mm(Q, K.transpose(1, 0))  # N x N
         sA = F.softmax(sA / torch.sqrt(torch.tensor(
-            Q.shape[0], dtype=torch.float32, device=device)), dim=0)  # N x N
-        AV = torch.mm(sA.transpose(1, 0), V)  # N x D
+            Q.shape[1], dtype=torch.float32, device=device)), dim=1)  # N x N
+        AV = torch.mm(sA, V)  # N x D
 
         # attention pooling
         if self.gated:
