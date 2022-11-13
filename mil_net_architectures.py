@@ -5,6 +5,7 @@ import numpy as np
 from torchvision import models
 from batch_idx_sel import batched_index_select
 from nystrom_attention import NystromAttention
+# from monai.networks.nets import EfficientNetBN
 
 
 class Identity(nn.Module):
@@ -361,6 +362,10 @@ class GatedMultiAttentionMIL(nn.Module):
         self.n_dropout = n_dropout
 
         self.D = 128
+        # self.feature_extractor = EfficientNetBN("efficientnet-b0",
+        #                                         num_classes=1)
+        # self.num_features = self.feature_extractor._fc.in_features
+        # self.feature_extractor._fc = Identity()
 
         self.feature_extractor = models.resnet18(pretrained=pretrained)
         self.num_features = self.feature_extractor.fc.in_features
