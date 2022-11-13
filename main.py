@@ -72,7 +72,7 @@ cj_prob = 0.5
 cj_bright = 0.25
 cj_contrast = 0.25
 cj_sat = 0.25
-cj_hue = 0.
+cj_hue = 0.25
 gaussian_blur_prob = 0.5
 
 input_size = patch_size
@@ -81,7 +81,7 @@ min_scale = 0.8
 color_jitter = T.ColorJitter(cj_bright, cj_contrast, cj_sat, cj_hue)
 gaussian_blur = T.GaussianBlur(kernel_size=23, sigma=(0.1, 2.0))
 
-transform = T.Compose([T.RandomAffine(degrees=(90), translate=(0, 0.1)),
+transform = T.Compose([T.RandomAffine(degrees=(0), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip(),
                        T.RandomResizedCrop(size=input_size,
@@ -94,10 +94,10 @@ transforms_val_test = None
 tfs = [transform, transforms_val_test, transforms_val_test]
 
 # GET TILES (PATCHES) COORDS (size/overlap)-----------------------------------
-tiles_train = get_tiles(3518*2, 2800,
+tiles_train = get_tiles(3518, 2800//2,
                         patch_size, patch_size,
                         overlap_train)
-tiles_test_val = get_tiles(3518*2, 2800,
+tiles_test_val = get_tiles(3518, 2800//2,
                            patch_size, patch_size,
                            overlap_val_test)
 tiles = [tiles_train, tiles_test_val]
@@ -234,7 +234,7 @@ if 1:
             # net.momentum = 0.01
 
     net.apply(deactivate_batchnorm)
-if 1:
+if 0:
     # fn = 'clr_lr-1loss2.578792095184326'
     fn = 'clr_lr-0.001loss2.6703104972839355'
     model_load_path = ('/media/dysk/student2/mammografia/Zapisy/'
