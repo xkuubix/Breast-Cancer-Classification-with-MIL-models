@@ -32,6 +32,11 @@ def train_net(net, dataloaders,
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
+    accum_steps = 8
+    i = 0
+    grad_acc_mode = True
+
+    optimizer.zero_grad()
     for epoch in range(num_epochs):
         print(f'Epoch {epoch+1 :3}/{num_epochs}', end=' ')
 
@@ -49,7 +54,8 @@ def train_net(net, dataloaders,
             for images, targets in dataloaders[phase]:
                 images = images.to(device)
                 labels = targets["labels"].to(device)
-                optimizer.zero_grad()
+
+                # optimizer.zero_grad()
                 # forward pass
                 with torch.set_grad_enabled(phase == 'train'):
                     if net.__class__.__name__ in pe_ar_list:
@@ -97,12 +103,26 @@ def train_net(net, dataloaders,
 
                     # backward pass + opt
                     if phase == 'train':
-                        loss.backward()
-                        optimizer.step()
-                        # scheduler.step()  # ----------------------------
+                        if grad_acc_mode is True:
+                            loss = loss / accum_steps
+                            loss.backward()
+                            dl = len(dataloaders[phase])
+                            if ((i + 1) % accum_steps == 0) or (i + 1 == dl):
+                                optimizer.step()
+                                optimizer.zero_grad()
+                                i = 0
+                            i += 1
+                        else:
+                            loss.backward()
+                            optimizer.step()
+                            optimizer.zero_grad()
+                            # scheduler.step()  # ----------------------------
 
                 # statistics
-                phase_loss += loss.item() * images.size(0)
+                if grad_acc_mode is True and phase == 'train':
+                    phase_loss += loss.item() * images.size(0) * accum_steps
+                else:
+                    phase_loss += loss.item() * images.size(0)
                 if str(criterion) == 'BCELoss()':
                     # print(preds, labels)
                     phase_corrects += torch.sum(torch.tensor(preds)
