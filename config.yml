@@ -1,34 +1,37 @@
 seed: 42
-
 device: ['cuda:1']
 
 data_sets:
   create_new_dl: True
-  num_workers: 8
+  num_workers: 4
   split_fraction_train_rest: 0.75
   split_fraction_val_test: 0.5
   root_dir: '/media/dysk/student2/mammografia/Mammografie'
   file_dir: '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
   dataloader_path: '/media/dysk/student2/mammografia/Zapisy/data_loader.pth'
   dataloader_sizes: '/media/dysk/student2/mammografia/Zapisy/data_loader_sizes.pth'
+  
   image_view: ['CC', 'MLO']
-  class_names: ['No cancer', 'Cancer']
+  class_names: ['No Cancer', 'Cancer']
+  # class_names: ['Malignant', 'Lymph_nodes']
+  # class_names: ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
   #['Normal', 'Benign', 'Malignant', 'Lymph_nodes'] bcds zmienic 0.1. na 0123
-  patch_size: 512
-  bag_size_train: 50
+
+  patch_size: 224
+  bag_size_train: 350
   bag_size_val_test: -1
-  overlap_train_val: 0.5
-  overlap_val_test: 0.5
+  overlap_train_val: 0.6
+  overlap_val_test: 0.6
 
 training_plan:
  
   architectures:
-    names: 'gmil'
+    names: 'gmamil'
   
   parameters:
     batch_size: 1
-    epochs: [85]
-    lr: [0.001]
+    epochs: [75]
+    lr: [0.0005]
     wd: [0.001]
 
   criterion: 'bce'
@@ -36,6 +39,6 @@ training_plan:
   optim_name: 'sgd'
 
   scheduler:
-    name: 'lin'
-    step_size: 25
-    gamma: 0.75
+    name: 'cos-ann'
+    step_size: 10
+    gamma: 0.9
