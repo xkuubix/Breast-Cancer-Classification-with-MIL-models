@@ -8,6 +8,16 @@ from tile_maker import convert_img_to_bag
 import random
 
 
+def gauss_noise(img, p):
+    if p < torch.rand(1):
+        return img
+    img_shape = img.shape
+    r = random.randint(1, 10) * 1e-4
+    noise = (r**0.5)*torch.randn(img_shape)
+    img = img + noise
+    return img
+
+
 class BreastCancerDataset(torch.utils.data.Dataset):
     '''
         Take path to folder of one class, set view to
@@ -47,8 +57,8 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
             img = torch.cat((img_CC, img_MLO), dim=1)
             #####
-            # t = T.Resize((3518, 2800//2))
-            # img = t(img)
+            t = T.Resize((3518, 2800//2))
+            img = t(img)
             #####
         else:
             dcm = dcmread(self.dicoms[idx])
@@ -117,26 +127,28 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                 target['tile_cords'] = t_cord
 
                 if self.transforms is not None:
-
                     # prob_cj = random.choice([0, 1])
-                    # color_jitter = T.ColorJitter(0.25, 0.25, 0.25, 0.25)
-                    # gaussian_blur = T.GaussianBlur(kernel_size=23,
-                    #                                sigma=(0.1, 2.0))
+                    # prob_g = random.choice([0, 1])
+                    color_jitter = T.ColorJitter(0.25, 0.25, 0.25, 0.25)
+                    gaussian_blur = T.GaussianBlur(kernel_size=23,
+                                                   sigma=(0.1, 2.0))
                     # jtt_gss = T.Compose([color_jitter, gaussian_blur])
-
-                    for i, image in enumerate(img):
+                    for i, _ in enumerate(img):
                         angle = random.choice([-90, 0, 90, 180])
                         img[i] = TF.rotate(img[i], angle)
-                        # if prob_cj:
-                        # img[i] = jtt_gss(img[i])
+                        if 0:
+                            img[i] = color_jitter(img[i])
+                        if 0:
+                            img[i] = gaussian_blur(img[i])
+                    # img = gauss_noise(img, p=0.5)
                     img = self.transforms(img)
 
-            # mean = [0.2347, 0.2347, 0.2347]
-            # std = [0.1602, 0.1602, 0.1602]
-            # mean = [0.485, 0.456, 0.406]
-            # std = [0.229, 0.224, 0.225]
-            # t = T.Normalize(mean, std)
-            # img = t(img)
+            # img = (img - img.mean())/img.std()
+            img = (img - 0.2327)/0.1592
+            # b_lims = torch.zeros(img.shape)
+            # u_lims = torch.ones(img.shape)
+            # img = torch.where(img < 0., b_lims, img)
+            # img = torch.where(img > 1., u_lims, img)
 
         return img, target
 
@@ -154,11 +166,13 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
         if self.multimodal:
             for patient in patients:
-                if 'LCC' and 'LMLO' in patient['view']:
+                if 'LCC' in patient['view'] and 'LMLO' in patient['view']:
+                    # if patient['class'][0] in ['Malignant', 'Lymph_nodes']:
                     class_names_list.append(patient['class'][0])
                     filenames_list.append(patient['filename'][0:2])
                     view_list.append('Left')
-                if 'RCC' and 'RMLO' in patient['view']:
+                if 'RCC' in patient['view'] and 'RMLO' in patient['view']:
+                    # if patient['class'][-1] in ['Malignant', 'Lymph_nodes']:
                     class_names_list.append(patient['class'][-1])
                     filenames_list.append(patient['filename'][-2:])
                     view_list.append('Rigth')
