@@ -142,5 +142,5 @@ def choose_NCOS(net_ar: str, device,
                                             total_steps=TOTAL_STEPS)
     elif scheduler['name'] == 'cos-ann':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=5, eta_min=1e-5)
+            optimizer, T_max=10, eta_min=1e-5)
     return net, criterion, optimizer, scheduler
