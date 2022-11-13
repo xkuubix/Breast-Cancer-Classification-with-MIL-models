@@ -81,7 +81,6 @@ scheduler_type = config['training_plan']['scheduler']
 # TRANSFORMS------------------------------------------------------------------
 transform = T.Compose([  # T.RandomAffine(degrees=(3), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
-                       T.RandomVerticalFlip(),
                        ])
 transforms_val_test = None
 tfs = [transform, transforms_val_test, transforms_val_test]
@@ -95,12 +94,12 @@ tiles_test_val = get_tiles(3518, 2800,
                            overlap_val_test)
 tiles = [tiles_train, tiles_test_val]
 # %% TRANSFORMS
-input_size = 224
-cj_prob = 0.5
-cj_bright = 0.2
-cj_contrast = 0.2
-cj_sat = 0.2
-cj_hue = 0.2
+input_size = patch_size
+cj_prob = 0.8
+cj_bright = 0.25
+cj_contrast = 0.25
+cj_sat = 0.25
+cj_hue = 0.25
 min_scale = 0.8
 gaussian_blur_prob = 0.5
 
@@ -110,6 +109,7 @@ gaussian_blur = T.GaussianBlur(kernel_size=23, sigma=(0.1, 2.0))
 
 clr_transform = [T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0)),
                  T.RandomApply([color_jitter], p=cj_prob),
+                 T.RandomVerticalFlip(),
                  T.RandomApply([gaussian_blur], p=gaussian_blur_prob),
                  ]
 aug = T.Compose(clr_transform)
@@ -188,7 +188,7 @@ for epoch in range(EPOCHS):
 
     for x, _ in data_loaders['train']:
         model.train()
-        x1 = aug(x.squeeze(0)).contiguous().to(device)
+        x1 = x.squeeze(0).to(device)
         x2 = aug(x.squeeze(0)).contiguous().to(device)
         z0 = model(x1)
         z1 = model(x2)
@@ -210,7 +210,7 @@ for epoch in range(EPOCHS):
     for x, _ in data_loaders['val']:
         with torch.no_grad():
             model.eval()
-            x1 = aug(x.squeeze(0)).contiguous().to(device)
+            x1 = x.squeeze(0).to(device)
             x2 = aug(x.squeeze(0)).contiguous().to(device)
             z0 = model(x1)
             z1 = model(x2)
