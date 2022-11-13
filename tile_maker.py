@@ -54,8 +54,8 @@ def convert_img_to_bag(image, tiles, bag_size):
         px_non_zero[i] = (new_img[i][0].reshape(1, -1) > 0).sum() \
             / len(new_img[i][0].reshape(1, -1)) / (hTile * wTile) * 100
 
-    sorted_tiles_idx = np.argsort(-px_sum)
-
+    # sorted_tiles_idx = np.argsort(-px_sum)
+    sorted_tiles_idx = np.argsort(-px_non_zero)
     px_non_zero_75pc = (px_non_zero > 75).sum()
 
     # if bag_size > len(sorted_tiles_idx) and not None:
