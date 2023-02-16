@@ -360,6 +360,7 @@ class GatedMultiAttentionMIL(nn.Module):
         self.num_classes = num_classes
         self.use_dropout = use_dropout
         self.n_dropout = n_dropout
+        # self.n_dropout = 0.2
 
         self.D = 128
         # self.feature_extractor = EfficientNetBN("efficientnet-b0",
@@ -437,12 +438,12 @@ class GatedMultiAttentionMIL(nn.Module):
         if self.use_dropout:
             x2 = nn.Dropout(self.n_dropout)(x2)
         # -------
-        A_V2 = self.attention_V2(x1)  # N x D
-        A_U2 = self.attention_U2(x1)  # N x D
+        A_V2 = self.attention_V2(x2)  # N x D
+        A_U2 = self.attention_U2(x2)  # N x D
         A2 = self.attention_weights2(torch.mul(A_V2, A_U2))
         A2 = torch.transpose(A2, 1, 0)
         A2 = F.softmax(A2, dim=1)  # ~ensure weights sum up  to unity
-        m2 = torch.mm(A2, x1)  # ~attention pooling
+        m2 = torch.mm(A2, x2)  # ~attention pooling
         m2 = m2.view(-1, 1 * self.D)
         m2 += m1
         ################
@@ -450,12 +451,12 @@ class GatedMultiAttentionMIL(nn.Module):
         if self.use_dropout:
             x3 = nn.Dropout(self.n_dropout)(x3)
         # -------
-        A_V3 = self.attention_V3(x1)  # N x D
-        A_U3 = self.attention_U3(x1)  # N x D
+        A_V3 = self.attention_V3(x3)  # N x D
+        A_U3 = self.attention_U3(x3)  # N x D
         A3 = self.attention_weights3(torch.mul(A_V3, A_U3))
         A3 = torch.transpose(A3, 1, 0)
         A3 = F.softmax(A3, dim=1)  # ~ensure weights sum up  to unity
-        m3 = torch.mm(A3, x1)  # ~attention pooling
+        m3 = torch.mm(A3, x3)  # ~attention pooling
         m3 = m3.view(-1, 1 * self.D)
         m3 += m2
 
@@ -582,6 +583,8 @@ class PositionalEncoding(nn.Module):
             X = X + position_encodings.to(X.device)
         return self.dropout(X)
 
+# -----------------------------------------------------------------
+
 
 class APE_SAMIL(nn.Module):
     def __init__(self, num_classes, pretrained,
@@ -686,3 +689,311 @@ class APE_SAMIL(nn.Module):
         # classifier
         y = self.classifier(M)  # 1 x 1
         return y, A, sA
+
+
+# -----------------------------------------------------------------
+# ---------------------------CLAM----------------------------------
+# """
+#     Attention Network without Gating (2 fc layers)
+#     args:
+#         L: input feature dimension
+#         D: hidden layer dimension
+#         dropout: whether to use dropout (p = 0.25)
+#         n_classes: number of classes
+# """
+
+
+class Attn_Net(nn.Module):
+
+    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+        super(Attn_Net, self).__init__()
+        self.module = [
+            nn.Linear(L, D),
+            nn.Tanh()]
+
+        if dropout:
+            self.module.append(nn.Dropout(0.25))
+
+        self.module.append(nn.Linear(D, n_classes))
+
+        self.module = nn.Sequential(*self.module)
+
+    def forward(self, x):
+        return self.module(x), x  # N x n_classes
+#   """
+#         Attention Network with Sigmoid Gating (3 fc layers)
+#         args:
+#             L: input feature dimension
+#             D: hidden layer dimension
+#             dropout: whether to use dropout (p = 0.25)
+#             n_classes: number of classes
+# """
+
+
+class Attn_Net_Gated(nn.Module):
+    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+        super(Attn_Net_Gated, self).__init__()
+        self.attention_a = [
+            nn.Linear(L, D),
+            nn.Tanh()]
+
+        self.attention_b = [nn.Linear(L, D),
+                            nn.Sigmoid()]
+        if dropout:
+            self.attention_a.append(nn.Dropout(0.25))
+            self.attention_b.append(nn.Dropout(0.25))
+
+        self.attention_a = nn.Sequential(*self.attention_a)
+        self.attention_b = nn.Sequential(*self.attention_b)
+
+        self.attention_c = nn.Linear(D, n_classes)
+
+    def forward(self, x):
+        a = self.attention_a(x)
+        b = self.attention_b(x)
+        A = a.mul(b)
+        A = self.attention_c(A)  # N x n_classes
+        return A, x
+
+
+"""
+args:
+    gate: whether to use gated attention network
+    size_arg: config for network size
+    dropout: whether to use dropout
+    k_sample: number of positive/neg patches to sample
+        for instance-level training
+    dropout: whether to use dropout (p = 0.25)
+    n_classes: number of classes
+    instance_loss_fn: loss function to supervise instance-level training
+    subtyping: whether it's a subtyping problem
+"""
+
+
+class CLAM_SB(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=True,
+                 k_sample=64, num_classes=2, pretrained=True,
+                 instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False):
+        super(CLAM_SB, self).__init__()
+        self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
+        size = self.size_dict[size_arg]
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+
+        fc = [nn.Linear(size[0], size[1]), nn.ReLU()]
+        if dropout:
+            fc.append(nn.Dropout(0.25))
+        if gate:
+            attention_net = Attn_Net_Gated(
+                L=size[1], D=size[2], dropout=dropout, n_classes=1)
+        else:
+            attention_net = Attn_Net(
+                L=size[1], D=size[2], dropout=dropout, n_classes=1)
+        fc.append(attention_net)
+        self.attention_net = nn.Sequential(*fc)
+        self.classifiers = nn.Linear(size[1], num_classes)
+        instance_classifiers = [
+            nn.Linear(size[1], 2) for i in range(num_classes)]
+        self.instance_classifiers = nn.ModuleList(instance_classifiers)
+        self.k_sample = k_sample
+        self.instance_loss_fn = instance_loss_fn
+        self.n_classes = num_classes
+        self.subtyping = subtyping
+
+    @staticmethod
+    def create_positive_targets(length, device):
+        return torch.full((length, ), 1, device=device).long()
+
+    @staticmethod
+    def create_negative_targets(length, device):
+        return torch.full((length, ), 0, device=device).long()
+
+    # instance-level evaluation for in-the-class attention branch
+    def inst_eval(self, A, h, classifier):
+        device = h.device
+        if len(A.shape) == 1:
+            A = A.view(1, -1)
+        top_p_ids = torch.topk(A, self.k_sample)[1][-1]
+        top_p = torch.index_select(h, dim=0, index=top_p_ids)
+        top_n_ids = torch.topk(-A, self.k_sample, dim=1)[1][-1]
+        top_n = torch.index_select(h, dim=0, index=top_n_ids)
+        p_targets = self.create_positive_targets(self.k_sample, device)
+        n_targets = self.create_negative_targets(self.k_sample, device)
+
+        all_targets = torch.cat([p_targets, n_targets], dim=0)
+        all_instances = torch.cat([top_p, top_n], dim=0)
+        logits = classifier(all_instances)
+        all_preds = torch.topk(logits, 1, dim=1)[1].squeeze(1)
+        instance_loss = self.instance_loss_fn(logits, all_targets)
+        return instance_loss, all_preds, all_targets
+
+    # instance-level evaluation for out-of-the-class attention branch
+    def inst_eval_out(self, A, h, classifier):
+        device = h.device
+        if len(A.shape) == 1:
+            A = A.view(1, -1)
+        top_p_ids = torch.topk(A, self.k_sample)[1][-1]
+        top_p = torch.index_select(h, dim=0, index=top_p_ids)
+        p_targets = self.create_negative_targets(self.k_sample, device)
+        logits = classifier(top_p)
+        p_preds = torch.topk(logits, 1, dim=1)[1].squeeze(1)
+        instance_loss = self.instance_loss_fn(logits, p_targets)
+        return instance_loss, p_preds, p_targets
+
+    def forward(self, x, label, instance_eval):
+        return_features = False
+        attention_only = False
+
+        # x: bs x N x C x W x W
+        x = x.squeeze(0)  # x: N x C x W x H
+        H = self.feature_extractor(x)  # H: N x num_feats (Nx512)
+        # H = H.view(bs, num_instances, -1)
+
+        A, H = self.attention_net(H)  # A: N x 1   H: N x 512
+        A = torch.transpose(A, 1, 0)  # 1 x N
+        if attention_only:
+            return A
+        A_raw = A
+        A = F.softmax(A, dim=1)  # softmax over N
+
+        if instance_eval:
+            total_inst_loss = 0.0
+            all_preds = []
+            all_targets = []
+            inst_labels = F.one_hot(
+                label.long(), num_classes=self.n_classes+1).squeeze()
+            for i in range(len(self.instance_classifiers)):
+                inst_label = inst_labels[i].item()
+                classifier = self.instance_classifiers[i]
+                if inst_label == 1:  # in-the-class:
+                    instance_loss, preds, targets = self.inst_eval(
+                        A, H, classifier)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+                else:  # out-of-the-class
+                    if self.subtyping:
+                        instance_loss, preds, targets = self.inst_eval_out(
+                            A, H, classifier)
+                        all_preds.extend(preds.cpu().numpy())
+                        all_targets.extend(targets.cpu().numpy())
+                    else:
+                        continue
+                total_inst_loss += instance_loss
+
+            if self.subtyping:
+                total_inst_loss /= len(self.instance_classifiers)
+
+        M = torch.mm(A, H)
+        logits = self.classifiers(M)
+        Y_hat = torch.topk(logits, 1, dim=1)[1]
+        Y_prob = F.softmax(logits, dim=1)
+        if instance_eval:
+            results_dict = {
+                'instance_loss': total_inst_loss, 'inst_labels': np.array(
+                    all_targets),
+                'inst_preds': np.array(all_preds)}
+        else:
+            results_dict = {}
+        if return_features:
+            results_dict.update({'features': M})
+        return logits, Y_prob, Y_hat, A_raw, results_dict
+
+
+class CLAM_MB(CLAM_SB):
+    def __init__(self, gate=True, size_arg="small", dropout=False,
+                 k_sample=8, num_classes=2, pretrained=True,
+                 instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False):
+        nn.Module.__init__(self)
+        self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
+        size = self.size_dict[size_arg]
+
+        self.feature_extractor = models.resnet18(pretrained=pretrained)
+        self.num_features = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = Identity()
+        fc = [nn.Linear(size[0], size[1]), nn.ReLU()]
+        if dropout:
+            fc.append(nn.Dropout(0.25))
+        if gate:
+            attention_net = Attn_Net_Gated(
+                L=size[1], D=size[2], dropout=dropout, n_classes=num_classes)
+        else:
+            attention_net = Attn_Net(
+                L=size[1], D=size[2], dropout=dropout, n_classes=num_classes)
+        fc.append(attention_net)
+        self.attention_net = nn.Sequential(*fc)
+        # use an indepdent linear layer to predict each class
+        bag_classifiers = [nn.Linear(size[1], 1) for i in range(num_classes)]
+        self.classifiers = nn.ModuleList(bag_classifiers)
+        instance_classifiers = [
+            nn.Linear(size[1], 2) for i in range(num_classes)]
+        self.instance_classifiers = nn.ModuleList(instance_classifiers)
+        self.k_sample = k_sample
+        self.instance_loss_fn = instance_loss_fn
+        self.n_classes = num_classes
+        self.subtyping = subtyping
+
+    def forward(self, x, label, instance_eval):
+        return_features = False
+        attention_only = False
+
+        device = x.device
+        # x: bs x N x C x W x W
+        x = x.squeeze(0)  # x: N x C x W x W
+        # bs, num_instances, ch, w, h = x.shape
+        # x = x.view(bs*num_instances, ch, w, h)  # x: N bs x C x W x W
+        H = self.feature_extractor(x)  # x: N bs x C' x W' x W'
+        # H = H.view(bs, num_instances, -1)
+
+        A, H = self.attention_net(H)
+
+        A = torch.transpose(A, 1, 0)  # KxN
+        if attention_only:
+            return A
+        A_raw = A
+        A = F.softmax(A, dim=1)  # softmax over N
+
+        if instance_eval:
+            total_inst_loss = 0.0
+            all_preds = []
+            all_targets = []
+            inst_labels = F.one_hot(
+                label.long(), num_classes=self.n_classes+1).squeeze()
+            for i in range(len(self.instance_classifiers)):
+                inst_label = inst_labels[i].item()
+                classifier = self.instance_classifiers[i]
+                if inst_label == 1:  # in-the-class:
+                    instance_loss, preds, targets = self.inst_eval(
+                        A[i], H, classifier)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+                else:  # out-of-the-class
+                    if self.subtyping:
+                        instance_loss, preds, targets = self.inst_eval_out(
+                            A[i], H, classifier)
+                        all_preds.extend(preds.cpu().numpy())
+                        all_targets.extend(targets.cpu().numpy())
+                    else:
+                        continue
+                total_inst_loss += instance_loss
+
+            if self.subtyping:
+                total_inst_loss /= len(self.instance_classifiers)
+        M = torch.mm(A, H)
+
+        logits = torch.empty(1, self.n_classes).float().to(device)
+        for c in range(self.n_classes):
+            logits[0, c] = self.classifiers[c](M[c])
+        Y_hat = torch.topk(logits, 1, dim=1)[1]
+        Y_prob = F.softmax(logits, dim=1)
+        if instance_eval:
+            results_dict = {
+                'instance_loss': total_inst_loss, 'inst_labels': np.array(
+                    all_targets),
+                'inst_preds': np.array(all_preds)}
+        else:
+            results_dict = {}
+        if return_features:
+            results_dict.update({'features': M})
+        return logits, Y_prob, Y_hat, A_raw, results_dict
