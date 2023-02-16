@@ -28,7 +28,7 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 75
+    patience = 100
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -60,8 +60,11 @@ def train_net(net, dataloaders,
                 with torch.set_grad_enabled(phase == 'train'):
                     if net.__class__.__name__ in pe_ar_list:
                         outputs = net(images, targets["tile_cords"])
+                    elif net.__class__.__name__ in ['CLAM_SB', 'CLAM_MB']:
+                        outputs = net(images, label=labels, instance_eval=True)
                     else:
                         outputs = net(images)
+
                     if str(criterion) == 'CrossEntropyLoss()':
                         _, preds = torch.max(outputs[0].reshape(-1, 4), 1)
 
@@ -81,10 +84,10 @@ def train_net(net, dataloaders,
                     if str(criterion) == 'BCELoss()':
                         # preds = torch.sigmoid(outputs).reshape(-1).detach(
                         #     ).cpu().numpy().round()
-                        preds = torch.sigmoid(outputs[0]).reshape(-1).detach(
-                              ).cpu().numpy().round()
 
                         if type(net).__name__ == 'DSMIL':
+                            preds = torch.sigmoid(outputs[0]).reshape(
+                                -1).detach().cpu().numpy().round()
                             max_prediction, _ = torch.max(outputs[3], 1)
 
                             loss_bag = criterion(
@@ -97,7 +100,20 @@ def train_net(net, dataloaders,
 
                             loss_total = 0.5*loss_bag + 0.5*loss_max
                             loss = loss_total.mean()
+                        elif type(net).__name__ in ['CLAM_SB', 'CLAM_MB']:
+                            labels.view(-1, 1)
+                            preds = torch.sigmoid(outputs[0]).reshape(
+                                -1).detach().cpu().numpy().round()
+                            loss = criterion(torch.sigmoid(
+                                outputs[0]).reshape(-1), labels) + \
+                                0.3 * outputs[4]['instance_loss']
+                            # print(preds, labels)
+                            # print(criterion(torch.sigmoid(
+                            #     outputs[0]).reshape(-1), labels),
+                            #       outputs[4]['instance_loss'])
                         else:
+                            preds = torch.sigmoid(outputs[0]).reshape(
+                                -1).detach().cpu().numpy().round()
                             loss = criterion(torch.sigmoid(
                                 outputs[0]).reshape(-1), labels)
 
@@ -202,17 +218,32 @@ def test_net(net, data_loaders: dict, class_names: list, device):
         with torch.no_grad():
             if net.__class__.__name__ in pe_ar_list:
                 outputs = net(images, targets["tile_cords"])
+            elif net.__class__.__name__ in ['CLAM_SB', 'CLAM_MB']:
+                outputs = net(images, label=None, instance_eval=False)
             else:
                 outputs = net(images)
-            if len(outputs) > 1:
-                outputs = outputs[0]
-            if outputs.size(dim=1) == 1:
-                score = torch.sigmoid(
-                    outputs).reshape(-1).detach().cpu().numpy()
-                scores = np.append(scores, score)
-            elif outputs.size(dim=1) == 4:
-                pred = outputs.softmax(1).argmax(1).cpu()
+
+            if net.__class__.__name__ in ['CLAM_SB', 'CLAM_MB']:
+                pred = torch.sigmoid(outputs[0]).reshape(
+                    -1).detach().cpu().numpy().round()
+                score = torch.sigmoid(outputs[0]).reshape(
+                    -1).detach().cpu().numpy()
                 preds = np.append(preds, pred)
+                scores = np.append(scores, score)
+                if len(outputs) > 1:
+                    outputs = outputs[0]
+            else:
+                if len(outputs) > 1:
+                    outputs = outputs[0]
+
+                if outputs.size(dim=1) == 1:
+                    score = torch.sigmoid(
+                        outputs).reshape(-1).detach().cpu().numpy()
+                    scores = np.append(scores, score)
+                elif outputs.size(dim=1) == 4:
+                    pred = outputs.softmax(1).argmax(1).cpu()
+                    preds = np.append(preds, pred)
+
             true = np.append(true, labels.cpu())
 
     figures = {}
@@ -240,7 +271,10 @@ def test_net(net, data_loaders: dict, class_names: list, device):
                                                    target_names=class_names,
                                                    output_dict=False)
 
-    return reports, figures, best_threshold, roc_auc
+    if outputs.size(dim=1) == 1:
+        return reports, figures, best_threshold, roc_auc
+    else:
+        return reports, figures, 0.0, 0.0
 
 
 def roc_curve_plot(true, scores: float, show: bool):
