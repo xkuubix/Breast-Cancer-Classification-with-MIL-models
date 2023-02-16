@@ -8,6 +8,7 @@ from mil_net_architectures import MultiAttentionMIL
 from mil_net_architectures import GatedMultiAttentionMIL
 from mil_net_architectures import TransMIL
 from mil_net_architectures import APE_SAMIL
+from mil_net_architectures import CLAM_SB, CLAM_MB
 from torch.optim import lr_scheduler
 
 
@@ -31,6 +32,7 @@ def choose_NCOS(net_ar: str, device,
     elif criterion_type == 'ce':
         criterion = nn.CrossEntropyLoss()
         num_out = 4  # lub 3
+
     criterion.to(device)
 
     # SELECT NET ARCHITECTURE
@@ -117,6 +119,20 @@ def choose_NCOS(net_ar: str, device,
     elif net_ar == 'test':
         net = APE_SAMIL(num_classes=num_out,
                         pretrained=pretrained)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    elif net_ar == 'clam_sb':
+        net = CLAM_SB(num_classes=num_out,
+                      pretrained=pretrained)
+        # if torch.cuda.device_count() == 2:
+        #     net = nn.DataParallel(net, device_ids=[0, 1])
+        net.to(device)
+
+    elif net_ar == 'clam_mb':
+        net = CLAM_MB(num_classes=num_out,
+                      pretrained=pretrained)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
