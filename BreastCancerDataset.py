@@ -6,6 +6,7 @@ import torchvision.transforms.functional as TF
 from skimage import img_as_float32
 from tile_maker import convert_img_to_bag
 import random
+from fnmatch import fnmatch
 
 
 def gauss_noise(img, p):
@@ -27,16 +28,19 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         Call with index returns img, target view/labels
     '''
     def __init__(self, root, df, view: list, transforms,
-                 conv_to_bag=False, bag_size=50, tiles=None):
+                 conv_to_bag=False, bag_size=50, tiles=None,
+                 img_size=[3518, 2800], is_multimodal=False):
         self.root = root
         self.view = view
         self.df = df
-        self.multimodal = True
+        self.img_size = img_size
+        self.multimodal = is_multimodal
         self.views, self.dicoms, self.class_name = self.__select_view()
         self.transforms = transforms
         self.convert_to_bag = conv_to_bag
         self.bag_size = bag_size
         self.tiles = tiles
+        # self.multimodal = True  # ##################
 
     def __getitem__(self, idx):
         os.chdir(os.path.join(self.root, self.class_name[idx]))
@@ -55,10 +59,12 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             img_MLO = img_as_float32(img_MLO)
             img_MLO = torch.from_numpy(img_MLO).unsqueeze(0).repeat(3, 1, 1)
 
-            img = torch.cat((img_CC, img_MLO), dim=1)
+            img = torch.cat((img_MLO, img_CC), dim=1)
+            _, height, width = img.shape
             #####
-            t = T.Resize((3518, 2800//2))
-            img = t(img)
+            if (height != self.img_size[0]) and (width != self.img_size[1]):
+                t = T.Resize((self.img_size[0], self.img_size[1]))
+                img = t(img)
             #####
         else:
             dcm = dcmread(self.dicoms[idx])
@@ -67,6 +73,12 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             img = img/4095
             img = img_as_float32(img)
             img = torch.from_numpy(img).unsqueeze(0).repeat(3, 1, 1)
+
+            #####
+            if (height != self.img_size[0]) and (width != self.img_size[1]):
+                t = T.Resize((self.img_size[0], self.img_size[1]))
+                img = t(img)
+            #####
         # img = img/torch.max(img)
 
         target = {}
@@ -92,9 +104,11 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         target["img_h"] = height
         target["img_w"] = width
 
-        # if target["laterality"] == 'R':
-        #     t = T.RandomHorizontalFlip(p=1.0)
-        #     img = t(img)
+        if target["laterality"] == 'R':
+            t = T.RandomHorizontalFlip(p=1.0)
+            img = t(img)
+        # translation -px (white strips near image border)
+        # img = TF.affine(img, angle=0, translate=(-20, 0), scale=1, shear=0)
 
         if self.convert_to_bag:
             target['full_image'] = img
@@ -144,7 +158,8 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                     img = self.transforms(img)
 
             # img = (img - img.mean())/img.std()
-            img = (img - 0.2327)/0.1592
+            # img = (img - 0.2327)/0.1592
+            # img = (img - 0.221)/0.146
             # b_lims = torch.zeros(img.shape)
             # u_lims = torch.ones(img.shape)
             # img = torch.where(img < 0., b_lims, img)
@@ -166,11 +181,13 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
         if self.multimodal:
             for patient in patients:
+                # take 2 first rows (sorted) if 2 or more rows are present
                 if 'LCC' in patient['view'] and 'LMLO' in patient['view']:
                     # if patient['class'][0] in ['Malignant', 'Lymph_nodes']:
                     class_names_list.append(patient['class'][0])
                     filenames_list.append(patient['filename'][0:2])
                     view_list.append('Left')
+                # take 2 last rows (sorted) if 2 or more rows are present
                 if 'RCC' in patient['view'] and 'RMLO' in patient['view']:
                     # if patient['class'][-1] in ['Malignant', 'Lymph_nodes']:
                     class_names_list.append(patient['class'][-1])
@@ -192,6 +209,181 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             #     class_names_list.append(patient['class'][item])
             #     filenames_list.append(patient['filename'][item])
             #     view_list.append(patient['view'][item])
+
+        return view_list, filenames_list, class_names_list
+
+    def __get_age(self, dcm):
+        '''Read Patient's age from DICOM data'''
+        dcm_tag = (0x0010, 0x1010)
+        # 0x0010, 0x1010 - Patient's Age in form 'dddY'
+        idx_end = str(dcm[dcm_tag]).find('Y')
+        return int(str(dcm[dcm_tag])[idx_end-3:idx_end])
+
+    def __get_laterality(self, dcm):
+        '''
+        Read Image Laterality from DICOM data
+        Returns 'L' or 'R' as string type dependent on breast laterality
+        '''
+        return dcm.ImageLaterality
+
+
+class CMMD_DS(torch.utils.data.Dataset):
+    '''
+       df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
+       root = '/media/dysk/student2/CMMD/TheChineseMammographyDatabase/CMMD/'
+    '''
+    def __init__(self, root, df, view: list, transforms,
+                 conv_to_bag=False, bag_size=50, tiles=None,
+                 img_size=[1914, 2294], is_multimodal=False):
+        self.root = root
+        self.view = view
+        self.df = df
+        self.img_size = img_size
+        self.multimodal = is_multimodal
+        self.views, self.dicoms, self.class_name = self.__make_df()
+        self.transforms = transforms
+        self.convert_to_bag = conv_to_bag
+        self.bag_size = bag_size
+        self.tiles = tiles
+        # self.multimodal = True  # ##################
+
+    def __getitem__(self, idx):
+        # os.chdir(os.path.join(self.root, self.class_name[idx]))
+
+        if self.multimodal:
+            dcm = dcmread(self.dicoms[idx][0])
+            img_CC = dcm.pixel_array
+            height, width = img_CC.shape
+            img_CC = img_CC/255
+            img_CC = img_as_float32(img_CC)
+            img_CC = torch.from_numpy(img_CC).unsqueeze(0).repeat(3, 1, 1)
+
+            dcm = dcmread(self.dicoms[idx][1])
+            img_MLO = dcm.pixel_array
+            img_MLO = img_MLO/255
+            img_MLO = img_as_float32(img_MLO)
+            img_MLO = torch.from_numpy(img_MLO).unsqueeze(0).repeat(3, 1, 1)
+
+            img = torch.cat((img_MLO, img_CC), dim=1)
+            _, height, width = img.shape
+            #####
+            if (height != self.img_size[0]) and (width != self.img_size[1]):
+                t = T.Resize((self.img_size[0], self.img_size[1]))
+                img = t(img)
+            #####
+        else:
+            raise NotImplementedError
+
+        target = {}
+
+        if self.class_name[idx] == 'Benign':
+            target["labels"] = torch.tensor(0.)
+            target["class"] = 'Benign'
+        elif self.class_name[idx] == 'Malignant':
+            target["labels"] = torch.tensor(1.)
+            target["class"] = 'Malignant'
+
+        target["view"] = self.views[idx]
+        target["file"] = self.dicoms[idx]
+        target["age"] = self.__get_age(dcm)
+        target["laterality"] = self.__get_laterality(dcm)
+        target["img_h"] = height
+        target["img_w"] = width
+
+        if target["laterality"] == 'R':
+            t = T.RandomHorizontalFlip(p=1.0)
+            img = t(img)
+
+        if self.convert_to_bag:
+            target['full_image'] = img
+            # Multi scale bag instances
+            if len(self.tiles) == 2:
+                if target["laterality"] == 'R':
+                    t = T.RandomHorizontalFlip(p=1.0)
+                    img = t(img)
+
+                instances_scale_1, t_id_scale_1, t_cord1 = convert_img_to_bag(
+                    img, self.tiles[0], self.bag_size)
+                instances_scale_2, t_id_scale_2, t_cord2 = convert_img_to_bag(
+                    img, self.tiles[1], self.bag_size)
+                t = T.Resize(224)
+                instances_scale_2 = t(instances_scale_2)
+                img = torch.cat((instances_scale_1, instances_scale_2),
+                                dim=0)
+                if self.transforms is not None:
+                    for i, image in enumerate(img):
+                        angle = random.choice([-90, 0, 90, 180])
+                        img[i] = TF.rotate(img[i], angle)
+                        # img[i] = self.transforms(img[i])
+                    img = self.transforms(img)
+                target['tiles_indices'] = [t_id_scale_1, t_id_scale_2]
+            # Single scale bag instances
+            else:
+                img, t_id, t_cord = convert_img_to_bag(img, self.tiles,
+                                                       self.bag_size)
+                target['tiles_indices'] = t_id
+                target['tile_cords'] = t_cord
+
+                if self.transforms is not None:
+                    # prob_cj = random.choice([0, 1])
+                    # prob_g = random.choice([0, 1])
+                    color_jitter = T.ColorJitter(0.25, 0.25, 0.25, 0.25)
+                    gaussian_blur = T.GaussianBlur(kernel_size=23,
+                                                   sigma=(0.1, 2.0))
+                    # jtt_gss = T.Compose([color_jitter, gaussian_blur])
+                    for i, _ in enumerate(img):
+                        angle = random.choice([-90, 0, 90, 180])
+                        img[i] = TF.rotate(img[i], angle)
+                        if 0:
+                            img[i] = color_jitter(img[i])
+                        if 0:
+                            img[i] = gaussian_blur(img[i])
+                    # img = gauss_noise(img, p=0.5)
+                    img = self.transforms(img)
+
+        return img, target
+
+    def __len__(self):
+        return len(self.dicoms)
+
+    def __make_df(self):
+        '''Select only given view(s) and return list of filenames
+           and class names(folder names)
+        '''
+        class_names_list = []
+        filenames_list = []
+        view_list = []
+        patients = self.df.to_dict('records')
+
+        if self.multimodal:
+            for patient in patients:
+                pattern = '*.dcm'
+                empty_list = []
+                for path, subdirs, files in os.walk(
+                     os.path.join(self.root, str(patient['ID1']))):
+                    for name in files:
+                        if fnmatch(name, pattern):
+                            empty_list.append(os.path.join(path, name))
+                if len(empty_list) == 2:
+                    filenames_list.append(empty_list)
+                    class_names_list.append(patient['classification'][0])
+                    dcm = dcmread(empty_list[0])
+                    view_list.append(dcm.ImageLaterality)
+                elif len(empty_list) == 4:
+
+                    dcm = dcmread(empty_list[0])
+                    view_list.append(dcm.ImageLaterality)
+                    filenames_list.append(empty_list[0:2])
+                    class_names_list.append(patient['classification'][0])
+
+                    dcm = dcmread(empty_list[-1])
+                    view_list.append(dcm.ImageLaterality)
+                    filenames_list.append(empty_list[-2:])
+                    class_names_list.append(patient['classification'][-1])
+                else:
+                    continue
+        else:
+            raise NotImplementedError
 
         return view_list, filenames_list, class_names_list
 
