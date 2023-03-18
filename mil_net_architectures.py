@@ -693,17 +693,16 @@ class APE_SAMIL(nn.Module):
 
 # -----------------------------------------------------------------
 # ---------------------------CLAM----------------------------------
-# """
-#     Attention Network without Gating (2 fc layers)
-#     args:
-#         L: input feature dimension
-#         D: hidden layer dimension
-#         dropout: whether to use dropout (p = 0.25)
-#         n_classes: number of classes
-# """
-
 
 class Attn_Net(nn.Module):
+    # """
+    #     Attention Network without Gating (2 fc layers)
+    #     args:
+    #         L: input feature dimension
+    #         D: hidden layer dimension
+    #         dropout: whether to use dropout (p = 0.25)
+    #         n_classes: number of classes
+    # """
 
     def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
         super(Attn_Net, self).__init__()
@@ -720,17 +719,17 @@ class Attn_Net(nn.Module):
 
     def forward(self, x):
         return self.module(x), x  # N x n_classes
-#   """
-#         Attention Network with Sigmoid Gating (3 fc layers)
-#         args:
-#             L: input feature dimension
-#             D: hidden layer dimension
-#             dropout: whether to use dropout (p = 0.25)
-#             n_classes: number of classes
-# """
 
 
 class Attn_Net_Gated(nn.Module):
+    #   """
+    #         Attention Network with Sigmoid Gating (3 fc layers)
+    #         args:
+    #             L: input feature dimension
+    #             D: hidden layer dimension
+    #             dropout: whether to use dropout (p = 0.25)
+    #             n_classes: number of classes
+    # """
     def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
         super(Attn_Net_Gated, self).__init__()
         self.attention_a = [
@@ -756,24 +755,22 @@ class Attn_Net_Gated(nn.Module):
         return A, x
 
 
-"""
-args:
-    gate: whether to use gated attention network
-    size_arg: config for network size
-    dropout: whether to use dropout
-    k_sample: number of positive/neg patches to sample
-        for instance-level training
-    dropout: whether to use dropout (p = 0.25)
-    n_classes: number of classes
-    instance_loss_fn: loss function to supervise instance-level training
-    subtyping: whether it's a subtyping problem
-"""
-
-
 class CLAM_SB(nn.Module):
+    """
+    args:
+        gate: whether to use gated attention network
+        size_arg: config for network size
+        dropout: whether to use dropout
+        k_sample: number of positive/neg patches to sample
+            for instance-level training
+        dropout: whether to use dropout (p = 0.25)
+        n_classes: number of classes
+        instance_loss_fn: loss function to supervise instance-level training
+        subtyping: whether it's a subtyping problem
+    """
     def __init__(self, gate=True, size_arg="small", dropout=True,
-                 k_sample=64, num_classes=2, pretrained=True,
-                 instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False):
+                 k_sample=2, num_classes=2, pretrained=True,
+                 instance_loss_fn=nn.CrossEntropyLoss(), subtyping=True):
         super(CLAM_SB, self).__init__()
         self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
         size = self.size_dict[size_arg]
@@ -842,7 +839,7 @@ class CLAM_SB(nn.Module):
         instance_loss = self.instance_loss_fn(logits, p_targets)
         return instance_loss, p_preds, p_targets
 
-    def forward(self, x, label, instance_eval):
+    def forward(self, x, label=None, instance_eval=False):
         return_features = False
         attention_only = False
 
@@ -855,7 +852,7 @@ class CLAM_SB(nn.Module):
         A = torch.transpose(A, 1, 0)  # 1 x N
         if attention_only:
             return A
-        A_raw = A
+        # A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N
 
         if instance_eval:
@@ -898,7 +895,7 @@ class CLAM_SB(nn.Module):
             results_dict = {}
         if return_features:
             results_dict.update({'features': M})
-        return logits, Y_prob, Y_hat, A_raw, results_dict
+        return logits, Y_prob, Y_hat, A, results_dict
 
 
 class CLAM_MB(CLAM_SB):
@@ -934,7 +931,7 @@ class CLAM_MB(CLAM_SB):
         self.n_classes = num_classes
         self.subtyping = subtyping
 
-    def forward(self, x, label, instance_eval):
+    def forward(self, x, label=None, instance_eval=False):
         return_features = False
         attention_only = False
 
@@ -951,7 +948,7 @@ class CLAM_MB(CLAM_SB):
         A = torch.transpose(A, 1, 0)  # KxN
         if attention_only:
             return A
-        A_raw = A
+        # A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N
 
         if instance_eval:
@@ -996,4 +993,4 @@ class CLAM_MB(CLAM_SB):
             results_dict = {}
         if return_features:
             results_dict.update({'features': M})
-        return logits, Y_prob, Y_hat, A_raw, results_dict
+        return logits, Y_prob, Y_hat, A, results_dict
