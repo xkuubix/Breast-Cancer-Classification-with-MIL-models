@@ -17,7 +17,10 @@ def train_net(net, dataloaders,
               optimizer,
               scheduler,
               num_epochs,
-              neptune_run):
+              neptune_run,
+              grad_acc_mode,
+              accum_steps
+              ):
     """
     Trains net for epochs given in parameter num_epochs
     meanwhile saving best weights in net.state_dict format
@@ -28,13 +31,13 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 100
+    patience = 20
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
-    accum_steps = 8
     i = 0
-    grad_acc_mode = True
+    # accum_steps = 4
+    # grad_acc_mode = False
 
     optimizer.zero_grad()
     for epoch in range(num_epochs):
@@ -189,6 +192,8 @@ def train_net(net, dataloaders,
         # early stopping
         if early_stopping_counter >= patience:
             print('INFO: Early stopping!')
+            break
+        if accuracy_stats['train'][-1] > 0.999:
             break
 
     time_e = time.time() - since
