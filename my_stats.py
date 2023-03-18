@@ -16,23 +16,29 @@ def make_df(dir: str, from_file=True,
         return pd.read_pickle(file_dir)
 
     empty_dict = {"id": None, "age": None, "view": None,
-                  "class": None, "filename": None}
+                  "class": None, "birads": None, "filename": None}
     patient_info = []
     os.chdir(dir)
     for folder in os.listdir(os.getcwd()):
-        os.chdir(os.path.join(dir, folder))
+        if folder in ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']:
+            os.chdir(os.path.join(dir, folder))
+        else:
+            continue
         for file in os.listdir(os.getcwd()):
+            if file.startswith('.'):
+                continue
             new_patient = empty_dict.copy()
             dcm = dcmread(file)
-            new_patient["id"] = int(dcm.PatientID)
+            new_patient["id"] = str(dcm.PatientID)
             age = str(dcm.PatientAge)
             idx_end = age.find('Y')
             new_patient["age"] = int(age[idx_end-3:idx_end])
             new_patient["view"] = str(dcm.ImageLaterality
                                       + dcm.ViewPosition)
             # Firstly check DICOM data, then file name, and eventually discard
-            if dcm.ViewPosition != 'CC' and dcm.ViewPosition != 'MLO':
-                if str(file).__contains__('MLO') or dcm.ViewPosition == 'ML':
+            if (dcm.ViewPosition != 'CC') and (dcm.ViewPosition != 'MLO'):
+                if (str(file).__contains__('MLO')) or (dcm.ViewPosition
+                                                       == 'ML'):
                     new_patient["view"] = str(dcm.ImageLaterality) + 'MLO'
                 elif str(file).__contains__('CC'):
                     new_patient["view"] = str(dcm.ImageLaterality) + 'CC'
@@ -43,14 +49,22 @@ def make_df(dir: str, from_file=True,
             new_patient["class"] = str(folder)
             new_patient["filename"] = str(dcm.filename)
 
-            if str(new_patient["id"]) == '84215':
+            if str(new_patient["id"]) in ['1988128',
+                                          '1281363',
+                                          '1034498',
+                                          '1203259',
+                                          '1229710',
+                                          '1299922',
+                                          '1924088'
+                                          ]:
                 print('Manually chosen dicom ommited')
                 continue
             # filter image size
             if dcm.Rows == 3518 and dcm.Columns == 2800:
                 patient_info.append(new_patient)
             else:
-                print('One dicom ommited due to its img size')
+                print('One dicom ommited due to its img size:',
+                      dcm.Rows, 'x', dcm.Columns, 'id:', dcm.PatientID)
 
     df = pd.DataFrame(patient_info)
     # print(df)
@@ -207,7 +221,7 @@ def projections_hist(classes_names: list, proj_L: list, proj_R: list):
     fig, ax = plt.subplots()
     ax.bar(X_axis - 0.2, y1, width, label='L')
     ax.bar(X_axis + 0.2, y2, width, label='R')
-    plt.ylim(top=130)
+    # plt.ylim(top=130)
     plt.grid(True)
     plt.xticks(X_axis, labels)
     plt.xlabel("Classes")
@@ -263,8 +277,9 @@ def age_hist(classes_names: list, all_ages: list):
     # x-axis labels
     ax.set_yticklabels(classes_names)
 
-    # Adding title
+    # Adding title and xlabel description
     plt.title("Patients' age stats")
+    plt.xlabel('Age')
 
     # Removing top axes and right axes ticks
     ax.get_xaxis().tick_bottom()
@@ -338,3 +353,101 @@ def show_stats(classes: list):
     age_hist(classes_names, all_ages)
     img_sizes(classes)
     return
+
+
+def show_statistics(df):
+    class_counts = {'Normal': 0, 'Benign': 0,
+                    'Malignant': 0, 'Lymph_nodes': 0}
+    laterality_counts_L = {'Normal': 0, 'Benign': 0,
+                           'Malignant': 0, 'Lymph_nodes': 0}
+    laterality_counts_R = {'Normal': 0, 'Benign': 0,
+                           'Malignant': 0, 'Lymph_nodes': 0}
+    all_ages = {'Normal': list(), 'Benign': list(),
+                'Malignant': list(), 'Lymph_nodes': list()}
+    for i in range(len(df)):
+        # for k in class_counts.keys():
+        if len(df.iloc[i]['view']) == 2:
+            class_counts[df.iloc[i]['class'][0]] += 1
+            if df.iloc[i]['view'][0].__contains__('L'):
+                laterality_counts_L[df.iloc[i]['class'][0]] += 1
+            elif df.iloc[i]['view'][0].__contains__('R'):
+                laterality_counts_R[df.iloc[i]['class'][0]] += 1
+            all_ages[df.iloc[i]['class'][0]].append(df.iloc[i]['age'])
+        elif len(df.iloc[i]['view']) == 4:
+            laterality_counts_L[df.iloc[i]['class'][0]] += 1
+            laterality_counts_R[df.iloc[i]['class'][0]] += 1
+            # class_counts[df.iloc[i]['class'][0]] += 2
+            all_ages[df.iloc[i]['class'][0]].append(df.iloc[i]['age'])
+            all_ages[df.iloc[i]['class'][0]].append(df.iloc[i]['age'])
+
+    classes_names = list(class_counts.keys())
+    # print(class_counts)
+    # print(laterality_counts_L)
+    # print(laterality_counts_R)
+    # print(all_ages)
+    ages_list = [all_ages[key] for key in classes_names]
+    age_hist(classes_names, ages_list)
+    print('L')
+    print(laterality_counts_L)
+    print('R')
+    print(laterality_counts_R)
+
+    i = 0
+    for item in ages_list:
+        print('\nClass name', classes_names[i])
+        print('mean', end=' ')
+        print(np.array(item).mean())
+        print('std', end=' ')
+        print(np.array(item).std())
+        print('max', end=' ')
+        print(np.array(item).max())
+        print('min', end=' ')
+        print(np.array(item).min())
+        print('median', end=' ')
+        print(np.median(np.array(item)))
+        i += 1
+    full_ds_list = [item for sublist in ages_list for item in sublist]
+    print('\nWhole dataset')
+    print('mean', end=' ')
+    print(np.array(full_ds_list).mean())
+    print('std', end=' ')
+    print(np.array(full_ds_list).std())
+    print('max', end=' ')
+    print(np.array(full_ds_list).max())
+    print('min', end=' ')
+    print(np.array(full_ds_list).min())
+    print('median', end=' ')
+    print(np.median(np.array(full_ds_list)))
+
+    full_ds_list = [item for sublist in ages_list[0:2] for item in sublist]
+    print('\nNon-cancer')
+    print('mean', end=' ')
+    print(np.array(full_ds_list).mean())
+    print('std', end=' ')
+    print(np.array(full_ds_list).std())
+    print('max', end=' ')
+    print(np.array(full_ds_list).max())
+    print('min', end=' ')
+    print(np.array(full_ds_list).min())
+    print('median', end=' ')
+    print(np.median(np.array(full_ds_list)))
+
+    full_ds_list = [item for sublist in ages_list[2:] for item in sublist]
+    print('\nCancer')
+    print('mean', end=' ')
+    print(np.array(full_ds_list).mean())
+    print('std', end=' ')
+    print(np.array(full_ds_list).std())
+    print('max', end=' ')
+    print(np.array(full_ds_list).max())
+    print('min', end=' ')
+    print(np.array(full_ds_list).min())
+    print('median', end=' ')
+    print(np.median(np.array(full_ds_list)))
+
+    Ls = [laterality_counts_L[key] for key in classes_names]
+    Rs = [laterality_counts_R[key] for key in classes_names]
+    projections_hist(classes_names, Ls, Rs)
+    return
+# %%
+# %%
