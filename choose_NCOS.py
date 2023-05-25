@@ -1,8 +1,7 @@
 import torch
 from torch import nn, optim
 from torchvision import models
-from mil_net_architectures import GatedMIL
-from mil_net_architectures import SimpleMIL
+from mil_net_architectures import AttentionMIL
 from mil_net_architectures import DSMIL
 from mil_net_architectures import MultiAttentionMIL
 from mil_net_architectures import GatedMultiAttentionMIL
@@ -12,11 +11,12 @@ from mil_net_architectures import CLAM_SB, CLAM_MB
 from torch.optim import lr_scheduler
 
 
-def choose_NCOS(net_ar: str, device,
-                pretrained,
+def choose_NCOS(net_ar: str, dropout: bool,
+                device: str,
+                pretrained: bool,
                 criterion_type: str,
                 optimizer_type: str,
-                lr, wd, scheduler):
+                lr: float, wd: float, scheduler: str):
 
     '''
     net_ar: resnet18, resnet50, alexnet, vgg16
@@ -65,16 +65,20 @@ def choose_NCOS(net_ar: str, device,
         net = models.vgg16(pretrained=pretrained)
         # to bc
 
-    elif net_ar == 'mil':
-        net = SimpleMIL(num_classes=num_out,
-                        num_instances=50, pretrained=pretrained)
+    elif net_ar == 'amil':
+        net = AttentionMIL(num_classes=num_out,
+                           pretrained=pretrained,
+                           gated=False,
+                           dropout=dropout)
         # if torch.cuda.device_count() == 2:
         # net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
 
-    elif net_ar == 'gmil':
-        net = GatedMIL(num_classes=num_out,
-                       pretrained=pretrained)
+    elif net_ar == 'gamil':
+        net = AttentionMIL(num_classes=num_out,
+                           pretrained=pretrained,
+                           gated=True,
+                           dropout=dropout)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
@@ -82,7 +86,8 @@ def choose_NCOS(net_ar: str, device,
     elif net_ar == 'nl_dsmil':
         net = DSMIL(num_classes=num_out,
                     pretrained=pretrained,
-                    nonlinear=True)
+                    nonlinear=True,
+                    dropout=dropout)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
@@ -125,14 +130,16 @@ def choose_NCOS(net_ar: str, device,
 
     elif net_ar == 'clam_sb':
         net = CLAM_SB(num_classes=num_out,
-                      pretrained=pretrained)
+                      pretrained=pretrained,
+                      dropout=dropout)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
 
     elif net_ar == 'clam_mb':
         net = CLAM_MB(num_classes=num_out,
-                      pretrained=pretrained)
+                      pretrained=pretrained,
+                      dropout=dropout)
         # if torch.cuda.device_count() == 2:
         #     net = nn.DataParallel(net, device_ids=[0, 1])
         net.to(device)
