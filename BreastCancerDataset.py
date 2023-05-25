@@ -1,3 +1,4 @@
+#%%
 from pydicom import dcmread
 import torch
 import os
@@ -8,7 +9,7 @@ from tile_maker import convert_img_to_bag
 import random
 from fnmatch import fnmatch
 
-
+#%%
 def gauss_noise(img, p):
     if p < torch.rand(1):
         return img
@@ -63,7 +64,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             _, height, width = img.shape
             #####
             if (height != self.img_size[0]) and (width != self.img_size[1]):
-                t = T.Resize((self.img_size[0], self.img_size[1]))
+                t = T.Resize((self.img_size[0], self.img_size[1]), antialias=True)
                 img = t(img)
             #####
         else:
@@ -76,7 +77,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
             #####
             if (height != self.img_size[0]) and (width != self.img_size[1]):
-                t = T.Resize((self.img_size[0], self.img_size[1]))
+                t = T.Resize((self.img_size[0], self.img_size[1]), antialias=True)
                 img = t(img)
             #####
         # img = img/torch.max(img)
@@ -108,7 +109,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
             t = T.RandomHorizontalFlip(p=1.0)
             img = t(img)
         # translation -px (white strips near image border)
-        # img = TF.affine(img, angle=0, translate=(-20, 0), scale=1, shear=0)
+        img = TF.affine(img, angle=0, translate=(-20, 0), scale=1, shear=0)
 
         if self.convert_to_bag:
             target['full_image'] = img
@@ -122,7 +123,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                     img, self.tiles[0], self.bag_size)
                 instances_scale_2, t_id_scale_2, t_cord2 = convert_img_to_bag(
                     img, self.tiles[1], self.bag_size)
-                t = T.Resize(224)
+                t = T.Resize(224, antialias=True)
                 instances_scale_2 = t(instances_scale_2)
                 img = torch.cat((instances_scale_1, instances_scale_2),
                                 dim=0)
@@ -268,7 +269,7 @@ class CMMD_DS(torch.utils.data.Dataset):
             _, height, width = img.shape
             #####
             if (height != self.img_size[0]) and (width != self.img_size[1]):
-                t = T.Resize((self.img_size[0], self.img_size[1]))
+                t = T.Resize((self.img_size[0], self.img_size[1]), antialias=True)
                 img = t(img)
             #####
         else:
@@ -306,7 +307,7 @@ class CMMD_DS(torch.utils.data.Dataset):
                     img, self.tiles[0], self.bag_size)
                 instances_scale_2, t_id_scale_2, t_cord2 = convert_img_to_bag(
                     img, self.tiles[1], self.bag_size)
-                t = T.Resize(224)
+                t = T.Resize(224, antialias=True)
                 instances_scale_2 = t(instances_scale_2)
                 img = torch.cat((instances_scale_1, instances_scale_2),
                                 dim=0)
@@ -360,28 +361,63 @@ class CMMD_DS(torch.utils.data.Dataset):
                 pattern = '*.dcm'
                 empty_list = []
                 for path, subdirs, files in os.walk(
-                     os.path.join(self.root, str(patient['ID1']))):
+                        os.path.join(self.root, str(patient['ID1']))):
                     for name in files:
                         if fnmatch(name, pattern):
                             empty_list.append(os.path.join(path, name))
-                if len(empty_list) == 2:
-                    filenames_list.append(empty_list)
-                    class_names_list.append(patient['classification'][0])
-                    dcm = dcmread(empty_list[0])
-                    view_list.append(dcm.ImageLaterality)
-                elif len(empty_list) == 4:
-
-                    dcm = dcmread(empty_list[0])
-                    view_list.append(dcm.ImageLaterality)
-                    filenames_list.append(empty_list[0:2])
-                    class_names_list.append(patient['classification'][0])
-
-                    dcm = dcmread(empty_list[-1])
-                    view_list.append(dcm.ImageLaterality)
-                    filenames_list.append(empty_list[-2:])
-                    class_names_list.append(patient['classification'][-1])
-                else:
-                    continue
+                if len(patient['classification']) == 1:
+                    # filenames_list.append(empty_list)
+                    to_append_CC = ''
+                    to_append_MLO = ''
+                    for f in empty_list:
+                        dcm = dcmread(f)
+                        if dcm.ImageLaterality != patient['LeftRight'][0]:
+                            continue
+                        else:
+                            if str(dcm[(0x054,
+                                        0x220)][0][(0x008,
+                                                    0x104)]).__contains__(
+                                                        'cranio'):
+                                to_append_CC = f
+                        # view_list.append(dcm.ImageLaterality + 'CC')
+                            elif str(dcm[(0x054,
+                                          0x220)][0][(0x008,
+                                                      0x104)]).__contains__(
+                                                          'medio'):
+                                to_append_MLO = f
+                    if (to_append_CC == '') or (to_append_MLO == ''):
+                        continue
+                    else:
+                        class_names_list.append(patient['classification'][0])
+                        filenames_list.append([to_append_CC, to_append_MLO])
+                        view_list.append(patient['LeftRight'])
+                elif len(patient['classification']) == 2:
+                    for i in range(len(patient['classification'])):
+                        to_append_CC = ''
+                        to_append_MLO = ''
+                        for f in empty_list:
+                            dcm = dcmread(f)
+                            if dcm.ImageLaterality != patient['LeftRight'][i]:
+                                continue
+                            else:
+                                if str(dcm[(0x054,
+                                            0x220)][0][(0x008,
+                                                        0x104)]).__contains__(
+                                                            'cranio'):
+                                    to_append_CC = f
+                            # view_list.append(dcm.ImageLaterality + 'CC')
+                                elif str(dcm[(0x054,
+                                              0x220)][0][
+                                                  (0x008,
+                                                   0x104)]).__contains__(
+                                                              'medio'):
+                                    to_append_MLO = f
+                    if (to_append_CC == '') or (to_append_MLO == ''):
+                        continue
+                    else:
+                        class_names_list.append(patient['classification'][i])
+                        filenames_list.append([to_append_CC, to_append_MLO])
+                        view_list.append(patient['LeftRight'][i])
         else:
             raise NotImplementedError
 
@@ -400,3 +436,5 @@ class CMMD_DS(torch.utils.data.Dataset):
         Returns 'L' or 'R' as string type dependent on breast laterality
         '''
         return dcm.ImageLaterality
+
+# %%
