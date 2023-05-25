@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from torchvision import models
 from batch_idx_sel import batched_index_select
-from nystrom_attention import NystromAttention
+# from nystrom_attention import NystromAttention
 # from monai.networks.nets import EfficientNetBN
 
 
@@ -16,24 +16,86 @@ class Identity(nn.Module):
         return x
 
 
-class TransLayer(nn.Module):
+class Attn_Net(nn.Module):
+    # """
+    #     Attention Network without Gating (2 fc layers)
+    #     args:
+    #         L: input feature dimension
+    #         D: hidden layer dimension
+    #         dropout: whether to use dropout (p = 0.25)
+    #         n_classes: number of classes
+    # """
 
-    def __init__(self, norm_layer=nn.LayerNorm, dim=512):
-        super().__init__()
-        self.norm = norm_layer(dim)
-        self.attn = NystromAttention(
-                                    dim=dim,
-                                    dim_head=dim//8,
-                                    heads=8,
-                                    num_landmarks=dim//2,
-                                    pinv_iterations=6,
-                                    residual=True,
-                                    dropout=0.1
-        )
+    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+        super(Attn_Net, self).__init__()
+        self.module = [
+            nn.Linear(L, D),
+            nn.Tanh()]
+
+        if dropout:
+            self.module.append(nn.Dropout(0.25))
+
+        self.module.append(nn.Linear(D, n_classes))
+
+        self.module = nn.Sequential(*self.module)
 
     def forward(self, x):
-        x = x + self.attn(self.norm(x))
-        return x
+        A = self.module(x)
+        return A, x  # N x n_classes
+
+
+class Attn_Net_Gated(nn.Module):
+    #   """
+    #         Attention Network with Sigmoid Gating (3 fc layers)
+    #         args:
+    #             L: input feature dimension
+    #             D: hidden layer dimension
+    #             dropout: whether to use dropout (p = 0.25)
+    #             n_classes: number of classes
+    # """
+    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+        super(Attn_Net_Gated, self).__init__()
+        self.attention_a = [
+            nn.Linear(L, D),
+            nn.Tanh()]
+
+        self.attention_b = [nn.Linear(L, D),
+                            nn.Sigmoid()]
+        if dropout:
+            self.attention_a.append(nn.Dropout(0.25))
+            self.attention_b.append(nn.Dropout(0.25))
+
+        self.attention_a = nn.Sequential(*self.attention_a)
+        self.attention_b = nn.Sequential(*self.attention_b)
+
+        self.attention_c = nn.Linear(D, n_classes)
+
+    def forward(self, x):
+        a = self.attention_a(x)
+        b = self.attention_b(x)
+        A = a.mul(b)
+        A = self.attention_c(A)  # N x n_classes
+        return A, x
+
+
+# class TransLayer(nn.Module):
+
+#     def __init__(self, norm_layer=nn.LayerNorm, dim=512):
+#         super().__init__()
+#         self.norm = norm_layer(dim)
+#         self.attn = NystromAttention(
+#                                     dim=dim,
+#                                     dim_head=dim//8,
+#                                     heads=8,
+#                                     num_landmarks=dim//2,
+#                                     pinv_iterations=6,
+#                                     residual=True,
+#                                     dropout=0.1
+#         )
+
+#     def forward(self, x):
+#         x = x + self.attn(self.norm(x))
+#         return x
 
 
 class PPEG(nn.Module):
@@ -55,60 +117,51 @@ class PPEG(nn.Module):
 
 
 # -----------------------GATED MIL---------------------------------
-class GatedMIL(nn.Module):
+class AttentionMIL(nn.Module):
 
     def __init__(
                 self,
                 num_classes=1,
-                pretrained=True):
+                gated=False,
+                pretrained=True,
+                dropout=False,
+                size_arg="small"):
 
         super().__init__()
-        self.L = 512  # to ma z resneta wychodzić AMP2d
-        self.D = 128  # att inner dim
-        self.K = 1
+        self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
+        size = self.size_dict[size_arg]
         self.is_pe = False
         self.cat = False
         self.feature_extractor = models.resnet18(pretrained=pretrained)
 
         self.num_features = self.feature_extractor.fc.in_features  # selfdod
         self.feature_extractor.fc = Identity()
-        # # self.feature_extractor.avgpool = Identity()
-        # self.patch_extractor = nn.Sequential(  # nn.AdaptiveMaxPool2d(1),
-        #                                      nn.Linear(self.num_features,
-        #                                                self.L),
-        #                                      nn.ReLU())
+        self.patch_extractor = nn.Sequential(nn.Linear(size[0], size[1]),
+                                             nn.ReLU())
         self.positional_encoder = PositionalEncoding(d=self.num_features,
                                                      dropout=0., max_len=64)
-
-        self.attention_V = nn.Sequential(
-            nn.Linear(self.L, self.D),
-            nn.Tanh()
-        )
-
-        self.attention_U = nn.Sequential(
-            nn.Linear(self.L, self.D),
-            nn.Sigmoid()
-        )
 
         if self.cat and self.is_pe:
             self.L *= 2
 
-        self.attention_weights = nn.Linear(self.D, self.K)
-
-        self.classifier = nn.Sequential(nn.Linear(self.L * self.K,
+        if gated:
+            self.attention_net = Attn_Net_Gated(
+                L=size[1], D=size[2], dropout=dropout, n_classes=1)
+        else:
+            self.attention_net = Attn_Net(
+                L=size[1], D=size[2], dropout=dropout, n_classes=1)
+        self.classifier = nn.Sequential(nn.Linear(size[1],
                                                   num_classes))
 
-    def forward(self, x, position_coords):
+    def forward(self, x, position_coords=None):
         # x: bs x N x C x W x W
 
         bs, num_instances, ch, w, h = x.shape
         x = x.view(bs*num_instances, ch, w, h)  # x: N bs x C x W x W
         H = self.feature_extractor(x)  # x: N bs x C' x W' x W'
-        # H = self.patch_extractor(H)  # added ~dim Nbs
+        H = self.patch_extractor(H)  # added ~dim Nbs
         H = H.view(bs, num_instances, -1)
-        A_V = self.attention_V(H)  # bs x N x D
-        A_U = self.attention_U(H)  # bs x N x D
-        A = self.attention_weights(torch.mul(A_V, A_U))
+        A, H = self.attention_net(H)
         A = torch.transpose(A, 2, 1)  # added ~dim bsxKxN 10
         A = F.softmax(A, dim=2)  # ~ensure weights sum up  to unity ~dim bsxKxN
 
@@ -133,11 +186,15 @@ class DSMIL(nn.Module):
                 self,
                 num_classes=1,
                 pretrained=True,
-                nonlinear=False):
+                nonlinear=False,
+                dropout=False,
+                size_arg="small"):
 
         super().__init__()
 
         # self.D = self.num_features
+        self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
+        size = self.size_dict[size_arg]
         self.Q_dim = 128
         self.is_pe = False
         self.cat = False
@@ -149,25 +206,29 @@ class DSMIL(nn.Module):
         self.positional_encoder = PositionalEncoding(d=self.num_features,
                                                      dropout=0., max_len=64)
 
-        self.IC_fc = nn.Linear(self.num_features, num_classes)
+        self.IC_fc = nn.Linear(size[0], num_classes)
 
         if nonlinear:
-            self.lin = nn.Sequential(nn.Linear(self.num_features,
-                                               self.num_features),
+            self.lin = nn.Sequential(nn.Linear(size[0],
+                                               size[1]),
                                      nn.ReLU())
 
-            self.q = nn.Sequential(nn.Linear(self.num_features, self.Q_dim),
+            self.q = nn.Sequential(nn.Linear(size[1], size[2]),
                                    nn.Tanh())
 
-        else:
-            self.lin = nn.Identity()
-            self.q = nn.Linear(self.num_features, self.Q_dim)
+        # else:
+        #     self.lin = nn.Identity()
+        #     self.q = nn.Linear(self.num_features, self.Q_dim)
 
-        self.v = nn.Sequential(nn.Dropout(0.),
-                               nn.Linear(self.num_features, self.num_features))
+        if dropout:
+            d = 0.25
+        else:
+            d = 0.
+        self.v = nn.Sequential(nn.Dropout(d),
+                               nn.Linear(size[1], size[1]))
 
         self.fcc = nn.Conv1d(num_classes, num_classes,
-                             kernel_size=self.num_features)
+                             kernel_size=size[1])
 
     def forward(self, x, position_coords):
         # bs-batch, N-num_instances, K-fts_per_inst CH-channels W/H-wdth/hght
@@ -694,67 +755,6 @@ class APE_SAMIL(nn.Module):
 # -----------------------------------------------------------------
 # ---------------------------CLAM----------------------------------
 
-class Attn_Net(nn.Module):
-    # """
-    #     Attention Network without Gating (2 fc layers)
-    #     args:
-    #         L: input feature dimension
-    #         D: hidden layer dimension
-    #         dropout: whether to use dropout (p = 0.25)
-    #         n_classes: number of classes
-    # """
-
-    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
-        super(Attn_Net, self).__init__()
-        self.module = [
-            nn.Linear(L, D),
-            nn.Tanh()]
-
-        if dropout:
-            self.module.append(nn.Dropout(0.25))
-
-        self.module.append(nn.Linear(D, n_classes))
-
-        self.module = nn.Sequential(*self.module)
-
-    def forward(self, x):
-        return self.module(x), x  # N x n_classes
-
-
-class Attn_Net_Gated(nn.Module):
-    #   """
-    #         Attention Network with Sigmoid Gating (3 fc layers)
-    #         args:
-    #             L: input feature dimension
-    #             D: hidden layer dimension
-    #             dropout: whether to use dropout (p = 0.25)
-    #             n_classes: number of classes
-    # """
-    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
-        super(Attn_Net_Gated, self).__init__()
-        self.attention_a = [
-            nn.Linear(L, D),
-            nn.Tanh()]
-
-        self.attention_b = [nn.Linear(L, D),
-                            nn.Sigmoid()]
-        if dropout:
-            self.attention_a.append(nn.Dropout(0.25))
-            self.attention_b.append(nn.Dropout(0.25))
-
-        self.attention_a = nn.Sequential(*self.attention_a)
-        self.attention_b = nn.Sequential(*self.attention_b)
-
-        self.attention_c = nn.Linear(D, n_classes)
-
-    def forward(self, x):
-        a = self.attention_a(x)
-        b = self.attention_b(x)
-        A = a.mul(b)
-        A = self.attention_c(A)  # N x n_classes
-        return A, x
-
-
 class CLAM_SB(nn.Module):
     """
     args:
@@ -768,8 +768,8 @@ class CLAM_SB(nn.Module):
         instance_loss_fn: loss function to supervise instance-level training
         subtyping: whether it's a subtyping problem
     """
-    def __init__(self, gate=True, size_arg="small", dropout=True,
-                 k_sample=2, num_classes=2, pretrained=True,
+    def __init__(self, gate=True, size_arg="small", dropout=False,
+                 k_sample=8, num_classes=2, pretrained=True,
                  instance_loss_fn=nn.CrossEntropyLoss(), subtyping=True):
         super(CLAM_SB, self).__init__()
         self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
