@@ -26,7 +26,7 @@ def get_tiles(h, w,
     X_points = start_points(w, wTile, overlap)
     Y_points = start_points(h, hTile, overlap)
 
-    tiles = np.zeros((len(Y_points)*len(X_points), 6), np.int)
+    tiles = np.zeros((len(Y_points)*len(X_points), 6), int)
 
     k = 0
     for i, y_cord in enumerate(Y_points):
@@ -79,7 +79,7 @@ def convert_img_to_bag(image, tiles, bag_size):
         instances_cords = tiles[instances_idx, 4:6]
         instances, instances_idx, instances_cords = shuffle(
             instances, instances_idx, instances_cords)
-    elif bag_size is not -1:
+    elif bag_size != -1:
         instances = new_img[sorted_tiles_idx[:px_non_zero_75pc]]
         instances_idx = sorted_tiles_idx[:px_non_zero_75pc]
         instances_cords = tiles[instances_idx, 4:6]
