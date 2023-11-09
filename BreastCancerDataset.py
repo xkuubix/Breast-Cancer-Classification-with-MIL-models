@@ -85,16 +85,16 @@ class BreastCancerDataset(torch.utils.data.Dataset):
         target = {}
         # CCE long 0 1 2 3, BCE float 0. 1.
         if self.class_name[idx] == 'Normal':
-            target["labels"] = torch.tensor(0.)
+            target["labels"] = torch.tensor(0)
             target["class"] = 'Normal'
         elif self.class_name[idx] == 'Benign':
-            target["labels"] = torch.tensor(0.)
+            target["labels"] = torch.tensor(1)
             target["class"] = 'Benign'
         elif self.class_name[idx] == 'Malignant':
-            target["labels"] = torch.tensor(1.)
+            target["labels"] = torch.tensor(2)
             target["class"] = 'Malignant'
         elif self.class_name[idx] == 'Lymph_nodes':
-            target["labels"] = torch.tensor(1.)
+            target["labels"] = torch.tensor(3)
             target["class"] = 'Lymph_nodes'
 
         target["view"] = self.views[idx]
@@ -142,8 +142,8 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                 target['tile_cords'] = t_cord
 
                 if self.transforms is not None:
-                    # prob_cj = random.choice([0, 1])
-                    # prob_g = random.choice([0, 1])
+                    prob_cj = random.choice([0, 1])
+                    prob_g = random.choice([0, 1])
                     color_jitter = T.ColorJitter(0.25, 0.25, 0.25, 0.25)
                     gaussian_blur = T.GaussianBlur(kernel_size=23,
                                                    sigma=(0.1, 2.0))
@@ -151,9 +151,9 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                     for i, _ in enumerate(img):
                         angle = random.choice([-90, 0, 90, 180])
                         img[i] = TF.rotate(img[i], angle)
-                        if 0:
+                        if prob_cj < 0.5:
                             img[i] = color_jitter(img[i])
-                        if 0:
+                        if prob_g < 0.5:
                             img[i] = gaussian_blur(img[i])
                     # img = gauss_noise(img, p=0.5)
                     img = self.transforms(img)
