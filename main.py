@@ -123,20 +123,20 @@ tiles = [tiles_train, tiles_test_val]
 # %%
 # MAKE & SAVE NEW DATASET OR LOAD CURRENTLY SAVED ONE-------------------------
 df = make_df(root,
-             from_file=True,
+             from_file=False,
              save_to_file=False,
              file_dir=file_dir)
 
 
 # ***************
-# os.chdir('/media/dysk/student2/CMMD/TheChineseMammographyDatabase/')
+# os.chdir('/media/dysk_a/jr_buler/CMMD/TheChineseMammographyDatabase/')
 # df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
 # df = df.sort_values(
 #     by=['LeftRight']).groupby('ID1').agg({"Age": np.mean,
 #                                           "LeftRight": list,
 #                                           "classification": list,
 #                                           }).reset_index()
-# root = '/media/dysk/student2/CMMD/TheChineseMammographyDatabase/CMMD/'
+# root = '/media/dysk_a/jr_buler/CMMD/TheChineseMammographyDatabase/CMMD/'
 # ***************
 
 # %%
@@ -314,7 +314,7 @@ if 1:
     metrics, figures, best_th, roc_auc = test_net(net_BACC, data_loaders,
                                                   class_names, device)
     unique_filename1 = str(uuid.uuid4())
-    model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
+    model_save_path = ('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                        + 'neptune_saved_models/' + unique_filename1)
     if run is not None:
         run['test/BACC/metrics'].log(metrics['th_05'])
@@ -336,7 +336,7 @@ if 1:
     metrics, figures, best_th, roc_auc = test_net(net_BL, data_loaders,
                                                   class_names, device)
     unique_filename2 = str(uuid.uuid4())
-    model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
+    model_save_path = ('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                        + 'neptune_saved_models/' + unique_filename2)
     if run is not None:
         run['test/BL/metrics'].log(metrics['th_05'])
@@ -391,7 +391,7 @@ if run is not None:
 # eaedf20a-8cac-479f-a5f3-07727bf3b726  best roclss
 if 0:
 
-    std = torch.load('/media/dysk/student2/mammografia/Zapisy/'
+    std = torch.load('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                      + 'neptune_saved_models/'
                      + '34a2036b-0f9c-4dc5-b583-86ec05c932e3',
                      map_location=device)
