@@ -31,7 +31,7 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 20
+    patience = 50
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -213,7 +213,7 @@ def test_net(net, data_loaders: dict, class_names: list, device):
     preds = np.array([])
     true = np.array([])
 
-    pe_ar_list = ['APE_SAMIL', 'DSMIL', 'GatedMIL']
+    pe_ar_list = ['APE_SAMIL', 'DSMIL', 'AttentionMIL']
 
     for images, targets in data_loaders["test"]:
 
@@ -241,19 +241,19 @@ def test_net(net, data_loaders: dict, class_names: list, device):
                 if len(outputs) > 1:
                     outputs = outputs[0]
 
-                if outputs.size(dim=1) == 1:
+                if len(outputs.reshape(-1)) == 1:
                     score = torch.sigmoid(
                         outputs).reshape(-1).detach().cpu().numpy()
                     scores = np.append(scores, score)
-                elif outputs.size(dim=1) == 4:
-                    pred = outputs.softmax(1).argmax(1).cpu()
+                elif len(outputs.reshape(-1)) >= 2:
+                    pred = outputs.reshape(-1, 4).softmax(1).argmax(1).cpu()
                     preds = np.append(preds, pred)
 
             true = np.append(true, labels.cpu())
 
     figures = {}
     reports = {}
-    if outputs.size(dim=1) == 1:
+    if len(outputs.reshape(-1)) == 1:
         preds = scores >= 0.5
         roc_fig, best_threshold, roc_auc = roc_curve_plot(true, scores, True)
         figures['roc'] = roc_fig
@@ -265,8 +265,7 @@ def test_net(net, data_loaders: dict, class_names: list, device):
     reports['th_05'] = classification_report(true, preds,
                                              target_names=class_names,
                                              output_dict=False)
-
-    if outputs.size(dim=1) == 1:
+    if len(outputs.reshape(-1)) == 1:
         preds = scores >= best_threshold
         cm = confusion_matrix(true, preds)
         cm = ConfusionMatrixDisplay(cm)
@@ -276,7 +275,7 @@ def test_net(net, data_loaders: dict, class_names: list, device):
                                                    target_names=class_names,
                                                    output_dict=False)
 
-    if outputs.size(dim=1) == 1:
+    if len(outputs.reshape(-1)) == 1:
         return reports, figures, best_threshold, roc_auc
     else:
         return reports, figures, 0.0, 0.0
