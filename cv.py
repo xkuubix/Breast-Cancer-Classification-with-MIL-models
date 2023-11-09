@@ -13,9 +13,9 @@ from gen_data_loader import gen_data_loader
 from tile_maker import get_tiles
 from sklearn.model_selection import KFold
 from torch import nn
-import pandas as pd
-import numpy as np
-import os
+# import pandas as pd
+# import numpy as np
+# import os
 
 
 def deactivate_batchnorm(net):
@@ -40,7 +40,7 @@ def print_ds_info(ds, name_to_print, view):
 
 # MAKE PARSER AND LOAD PARAMS FROM CONFIG FILE--------------------------------
 def get_args_parser():
-    default = '/home/student2/Projekt_MMG/config.yml'
+    default = '/home/jr_buler/Projekt_MMG/config.yml'
     help = '''path to .yml config file
     specyfying datasets/training params'''
 
@@ -94,7 +94,8 @@ transform = T.Compose([  # T.RandomAffine(degrees=(0), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip(),
                        T.RandomResizedCrop(size=input_size,
-                                           scale=(min_scale, 1.0))
+                                           scale=(min_scale, 1.0),
+                                           antialias=True)
                        ])
 
 transforms_val_test = None
@@ -111,20 +112,21 @@ tiles = [tiles_train, tiles_test_val]
 # %%
 # MAKE & SAVE NEW DATASET OR LOAD CURRENTLY SAVED ONE-------------------------
 df = make_df(root,
-             from_file=True,
+             from_file=False,
              save_to_file=False,
              file_dir=file_dir)
 
 # **********
-os.chdir('/media/dysk/student2/CMMD/TheChineseMammographyDatabase/')
-df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
-df = df.sort_values(
-    by=['LeftRight']).groupby('ID1').agg({"Age": np.mean,
-                                          "LeftRight": list,
-                                          "classification": list,
-                                          }).reset_index()
-df = df[df['ID1'].str.contains('D2-') == False]
-root = '/media/dysk/student2/CMMD/TheChineseMammographyDatabase/CMMD/'
+#  TUTAJ ZMIENIC SCIEZKI POZNIEN 
+# os.chdir('/media/dysk/student2/CMMD/TheChineseMammographyDatabase/')
+# df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
+# df = df.sort_values(
+#     by=['LeftRight']).groupby('ID1').agg({"Age": np.mean,
+#                                           "LeftRight": list,
+#                                           "classification": list,
+#                                           }).reset_index()
+# # df = df[df['ID1'].str.contains('D2-') == False]
+# root = '/media/dysk/student2/CMMD/TheChineseMammographyDatabase/CMMD/'
 # **********
 
 # %%
@@ -136,12 +138,14 @@ wd = config['training_plan']['parameters']['wd'][0]
 grad_accu = config['training_plan']['parameters']['grad_accu']['is_on']
 grad_accu_steps = config['training_plan']['parameters']['grad_accu']['steps']
 net_ar = config['training_plan']['architectures']['names']
+net_ar_dropout = config['training_plan']['architectures']['dropout']
 criterion_type = config['training_plan']['criterion']
 optimizer_type = config['training_plan']['optim_name']
 scheduler_type = config['training_plan']['scheduler']
 
 net, criterion, optimizer, scheduler = choose_NCOS(
     net_ar=net_ar,
+    dropout=net_ar_dropout,
     device=device,
     pretrained=True,
     criterion_type=criterion_type,
@@ -154,16 +158,15 @@ net.apply(deactivate_batchnorm)
 
 net_sd = copy.deepcopy(net.state_dict())
 if 1:
-    std = torch.load('/media/dysk/student2/mammografia/Zapisy/'
+    std = torch.load('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                      + 'neptune_saved_models/'
-                     + '49f86433-a8df-42be-97fb-d8f71127f120',
+                     + 'ea8571f2-7de0-479c-86b9-261265fb2d52',
                      map_location=device)
 
 # Cross-val splits
 kf = KFold(n_splits=5, shuffle=True, random_state=seed)
 
 unique_id = str(uuid.uuid4())
-
 for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
     print('------------fold no---------{}----------------------'.format(fold))
     # print('Test indexes: ', test_idx)
@@ -174,19 +177,17 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
     val_df = train_val_df.drop(train_df.index)
     print(len(train_df), len(val_df), len(test_df))
     print('Train')
-    print(train_df['classification'].value_counts())
+    print(train_df['class'].value_counts())
 
     print()
     print('Val')
-    print(val_df['classification'].value_counts())
+    print(val_df['class'].value_counts())
 
     print()
     print('Test')
-    print(test_df['classification'].value_counts())
-
-    # print(len(train_df[train_df['class']]))
-    # continue
-
+    print(test_df['class'].value_counts())
+    # print(len(train_df[train_df['classification']]))
+    continue
     data_loaders, data_loaders_sizes, ds = gen_data_loader(
         root=root,
         train_df=train_df,
@@ -203,8 +204,6 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
         img_size=image_size,
         is_multimodal=image_multimodality
         )
-
-
 # %%
     # RESET SEED
     seed = config['seed']
@@ -213,6 +212,7 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
 
     net, criterion, optimizer, scheduler = choose_NCOS(
         net_ar=net_ar,
+        dropout=net_ar_dropout,
         device=device,
         pretrained=True,
         criterion_type=criterion_type,
@@ -221,12 +221,12 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
         scheduler=scheduler_type)
     # LOAD CLR FEATURE  EXTRACTOR / DEACT BACTH NORM---------------------------
     net.apply(deactivate_batchnorm)
-    # net.load_state_dict(net_sd)
-    net.load_state_dict(std)
+    net.load_state_dict(net_sd)
+    # net.load_state_dict(std)
 
     # TRAIN NETWORK------------------------------------------------------------
     if 1:
-        run = neptune.init(project='ProjektMMG/5-fold-CV-Cancers')
+        run = neptune.init(project='ProjektMMG/Cross-val-nowe-dane')
         run['config'] = config
     else:
         run = None
@@ -251,7 +251,7 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
         metrics, figures, best_th, roc_auc = test_net(net_BACC, data_loaders,
                                                       class_names, device)
         unique_filename1 = str(uuid.uuid4())
-        model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
+        model_save_path = ('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                            + 'neptune_saved_models/' + unique_filename1)
         if run is not None:
             run['test/BACC/metrics'].log(metrics['th_05'])
@@ -273,7 +273,7 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(df)):
         metrics, figures, best_th, roc_auc = test_net(net_BL, data_loaders,
                                                       class_names, device)
         unique_filename2 = str(uuid.uuid4())
-        model_save_path = ('/media/dysk/student2/mammografia/Zapisy/'
+        model_save_path = ('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                            + 'neptune_saved_models/' + unique_filename2)
         if run is not None:
             run['test/BL/metrics'].log(metrics['th_05'])
