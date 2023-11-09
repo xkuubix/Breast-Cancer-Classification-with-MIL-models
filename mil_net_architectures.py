@@ -528,65 +528,65 @@ class GatedMultiAttentionMIL(nn.Module):
 
 
 # -----------------------TRANS MIL---------------------------------
-class TransMIL(nn.Module):
-    def __init__(self, num_classes,
-                 pretrained=True):
+# class TransMIL(nn.Module):
+#     def __init__(self, num_classes,
+#                  pretrained=True):
 
-        super(TransMIL, self).__init__()
+#         super(TransMIL, self).__init__()
 
-        self.feature_extractor = models.resnet18(pretrained=pretrained)
-        self.num_features = self.feature_extractor.fc.in_features
-        self.feature_extractor.fc = Identity()
+#         self.feature_extractor = models.resnet18(pretrained=pretrained)
+#         self.num_features = self.feature_extractor.fc.in_features
+#         self.feature_extractor.fc = Identity()
 
-        self.pos_layer = PPEG(dim=512)
-        # self._fc1 = nn.Sequential(nn.Linear(1024, 512), nn.ReLU())
-        self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
-        self.n_classes = num_classes
-        self.layer1 = TransLayer(dim=512)
-        self.layer2 = TransLayer(dim=512)
-        self.norm = nn.LayerNorm(512)
-        self._fc2 = nn.Linear(512, self.n_classes)
+#         self.pos_layer = PPEG(dim=512)
+#         # self._fc1 = nn.Sequential(nn.Linear(1024, 512), nn.ReLU())
+#         self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
+#         self.n_classes = num_classes
+#         self.layer1 = TransLayer(dim=512)
+#         self.layer2 = TransLayer(dim=512)
+#         self.norm = nn.LayerNorm(512)
+#         self._fc2 = nn.Linear(512, self.n_classes)
 
-    def forward(self, x):
+#     def forward(self, x):
 
-        bs, num_instances, _, _, _ = x.shape
-        my_device = x.device
+#         bs, num_instances, _, _, _ = x.shape
+#         my_device = x.device
 
-        x1 = x.squeeze(0)  # [B*n, ch, h, w]
-        x1 = self.feature_extractor(x1)  # [B*n, 512]
+#         x1 = x.squeeze(0)  # [B*n, ch, h, w]
+#         x1 = self.feature_extractor(x1)  # [B*n, 512]
 
-        # h = self.fc(x1.view(bs, num_instances, 512))  # [B, n, 512]
-        h = x1.view(bs, num_instances, 512)
-        # ---->pad
-        H = h.shape[1]
-        _H, _W = int(np.ceil(np.sqrt(H))), int(np.ceil(np.sqrt(H)))
-        add_length = _H * _W - H
-        h = torch.cat([h, h[:, :add_length, :]], dim=1)  # [B, N, 512]
+#         # h = self.fc(x1.view(bs, num_instances, 512))  # [B, n, 512]
+#         h = x1.view(bs, num_instances, 512)
+#         # ---->pad
+#         H = h.shape[1]
+#         _H, _W = int(np.ceil(np.sqrt(H))), int(np.ceil(np.sqrt(H)))
+#         add_length = _H * _W - H
+#         h = torch.cat([h, h[:, :add_length, :]], dim=1)  # [B, N, 512]
 
-        # ---->cls_token
-        B = h.shape[0]
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        cls_tokens = cls_tokens.to(my_device)
-        h = torch.cat((cls_tokens, h), dim=1)
+#         # ---->cls_token
+#         B = h.shape[0]
+#         cls_tokens = self.cls_token.expand(B, -1, -1)
+#         cls_tokens = cls_tokens.to(my_device)
+#         h = torch.cat((cls_tokens, h), dim=1)
 
-        # ---->Translayer x1
-        h = self.layer1(h)  # [B, N, 512]
+#         # ---->Translayer x1
+#         h = self.layer1(h)  # [B, N, 512]
 
-        # ---->PPEG
-        h = self.pos_layer(h, _H, _W)  # [B, N, 512]
+#         # ---->PPEG
+#         h = self.pos_layer(h, _H, _W)  # [B, N, 512]
 
-        # ---->Translayer x2
-        h = self.layer2(h)  # [B, N, 512]
+#         # ---->Translayer x2
+#         h = self.layer2(h)  # [B, N, 512]
 
-        # ---->cls_token
-        h = self.norm(h)[:, 0]
+#         # ---->cls_token
+#         h = self.norm(h)[:, 0]
 
-        # ---->predict
-        logits = self._fc2(h)  # [B, n_classes]
-        Y_hat = torch.argmax(logits, dim=1)
-        Y_prob = F.softmax(logits, dim=1)
+#         # ---->predict
+#         logits = self._fc2(h)  # [B, n_classes]
+#         Y_hat = torch.argmax(logits, dim=1)
+#         Y_prob = F.softmax(logits, dim=1)
 
-        return logits, Y_hat, Y_prob
+#         return logits, Y_hat, Y_prob
 # -----------------------------------------------------------------
 
 
