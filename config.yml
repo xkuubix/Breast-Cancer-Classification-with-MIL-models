@@ -1,44 +1,58 @@
 seed: 42
-device: ['cuda:1']
+device: ['cpu']
+
 
 data_sets:
   create_new_dl: True
-  num_workers: 4
+  num_workers: 2
   split_fraction_train_rest: 0.75
   split_fraction_val_test: 0.5
-  root_dir: '/media/dysk/student2/mammografia/Mammografie'
-  file_dir: '/media/dysk/student2/mammografia/Zapisy/stats_pickle'
-  dataloader_path: '/media/dysk/student2/mammografia/Zapisy/data_loader.pth'
-  dataloader_sizes: '/media/dysk/student2/mammografia/Zapisy/data_loader_sizes.pth'
+  # root_dir: '/media/dysk/student2/mammografia/Mammografie'
+  root_dir: '/media/dysk_a/jr_buler/Mammografie'
+  file_dir: '/media/dysk_a/jr_buler/mammografia/Zapisy/stats_pickle'
+  dataloader_path: '/media/dysk_a/jr_buler/mammografia/Zapisy/data_loader.pth'
+  dataloader_sizes: '/media/dysk_a/jr_buler/mammografia/Zapisy/data_loader_sizes.pth'
   
   image_view: ['CC', 'MLO']
-  class_names: ['No Cancer', 'Cancer']
+  # class_names: ['No metastasis', 'ALNMetastasis']
   # class_names: ['Malignant', 'Lymph_nodes']
-  # class_names: ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
+  class_names: ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
   #['Normal', 'Benign', 'Malignant', 'Lymph_nodes'] bcds zmienic 0.1. na 0123
 
   patch_size: 224
-  bag_size_train: 350
+  bag_size_train: 500
   bag_size_val_test: -1
-  overlap_train_val: 0.6
-  overlap_val_test: 0.6
+  overlap_train_val: 0.25
+  overlap_val_test: 0.5
+
+image:
+  size: [7036, 2800]
+  # size: [3518, 1400]
+  # size: [4588, 1914] #nie dawac dzialan matematycznych!!!3518x2800 CMMD[2294x1914] [4588, 1914] [2294, 957]
+  multimodal: True
 
 training_plan:
- 
+
   architectures:
-    names: 'gmamil'
+    # amil, gamil, l_dsmil, nl_dsmil, gmamil, clam_sb, clam_mb
+    names: 'clam_sb'
+    dropout: True #p=0.25
   
   parameters:
     batch_size: 1
-    epochs: [75]
-    lr: [0.0005]
+    epochs: [1000]
+    lr: [0.00005]
     wd: [0.001]
 
-  criterion: 'bce'
+    grad_accu:
+      is_on: True
+      steps: 8
 
-  optim_name: 'sgd'
+  criterion: 'ce'
+
+  optim_name: 'adam'
 
   scheduler:
-    name: 'cos-ann'
-    step_size: 10
+    name: 'lin'
+    step_size: 100
     gamma: 0.9
