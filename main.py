@@ -1,7 +1,17 @@
 # %%
+import os
+import yaml
+import uuid
+import copy
+import argparse
+import warnings
+import numpy as np
 import pandas as pd
+import neptune.new as neptune
+
 import torch
 from torchvision import transforms as T
+
 from my_drawings import my_show_image, my_show_training_results
 from my_stats import make_df, make_img_stats_dict, box_plot
 from choose_NCOS import choose_NCOS
@@ -11,18 +21,7 @@ from random_split_df import random_split_df
 from LRFinder import LRFinder, plot_lr_finder
 from get_points_to_crop import get_points
 from tile_maker import get_tiles
-import os
-import numpy as np
 
-import matplotlib.pyplot as plt  # temp
-# from tile import convert_img_to_bag, get_tiles  # temp
-
-import argparse
-import yaml
-import neptune.new as neptune
-import uuid
-import copy
-import warnings
 warnings.filterwarnings(action='ignore', category=UserWarning)
 # %%
 # MAKE PARSER AND LOAD PARAMS FROM CONFIG FILE--------------------------------
@@ -37,11 +36,12 @@ def get_args_parser():
                         help=help)
     return parser
 
-
 parser = get_args_parser()
 args, unknown = parser.parse_known_args()
+
 with open(args.config_path) as file:
     config = yaml.load(file, Loader=yaml.FullLoader)
+
 # %%
 # SET PARAMS------------------------------------------------------------------
 selected_device = config['device'][0]
@@ -54,6 +54,7 @@ torch.cuda.manual_seed(seed)
 dataloader_path = config['data_sets']['dataloader_path']
 dataloader_sizes_path = config['data_sets']['dataloader_sizes']
 
+dataset = config['data_sets']['dataset']
 create_new_dl = config['data_sets']['create_new_dl']
 batch_size = config['training_plan']['parameters']['batch_size']
 num_workers = config['data_sets']['num_workers']
@@ -70,73 +71,63 @@ bag_size_val_test = config['data_sets']['bag_size_val_test']
 image_size = config['image']['size']
 image_multimodality = config['image']['multimodal']
 
+not_multiscale = config['data_sets']['not_multiscale']
 patch_size = config['data_sets']['patch_size']
 overlap_train = config['data_sets']['overlap_train_val']
 overlap_val_test = config['data_sets']['overlap_val_test']
 
+
 # %%
-
 # TRANSFORMS------------------------------------------------------------------
-cj_prob = 0.5
-cj_bright = 0.25
-cj_contrast = 0.25
-cj_sat = 0.25
-cj_hue = 0.25
-gaussian_blur_prob = 0.5
-
 input_size = patch_size
 min_scale = 0.8
-
-color_jitter = T.ColorJitter(cj_bright, cj_contrast, cj_sat, cj_hue)
-gaussian_blur = T.GaussianBlur(kernel_size=23, sigma=(0.1, 2.0))
 
 transform = T.Compose([  # T.RandomAffine(degrees=(0), translate=(0, 0.1)),
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip(),
                        T.RandomResizedCrop(size=input_size,
                                            scale=(min_scale, 1.0),
-                                           antialias=True),
-                       # T.RandomApply([color_jitter], p=cj_prob),
-                       # T.RandomApply([gaussian_blur], p=gaussian_blur_prob)
-                       ])
-
+                                           antialias=True)])
 transforms_val_test = None
 tfs = [transform, transforms_val_test, transforms_val_test]
 
+# %%
 # GET TILES (PATCHES) COORDS (size/overlap)-----------------------------------
-tiles_train = get_tiles(image_size[0], image_size[1],
-                        patch_size, patch_size,
-                        overlap_train)
-tiles_test_val = get_tiles(image_size[0], image_size[1],
-                           patch_size, patch_size,
-                           overlap_val_test)
-tiles = [tiles_train, tiles_test_val]
+if not_multiscale:
+    tiles_train = get_tiles(image_size[0], image_size[1],
+                            patch_size, patch_size,
+                            overlap_train)
+    tiles_test_val = get_tiles(image_size[0], image_size[1],
+                            patch_size, patch_size,
+                            overlap_val_test)
+    tiles = [tiles_train, tiles_test_val]
+else:
+    tiles_scale_1 = get_tiles(image_size[0], image_size[1],
+                            patch_size, patch_size,
+                            overlap_train)
+    tiles_scale_2 = get_tiles(image_size[0], image_size[1],
+                            patch_size*2, patch_size*2,
+                            overlap_val_test)
+    tiles = [tiles_scale_1, tiles_scale_2]
+    tiles = [tiles, tiles]
 
-# tiles_scale_1 = get_tiles(3518, 2800,
-#                           patch_size, patch_size,
-#                           overlap_train)
-# tiles_scale_2 = get_tiles(3518, 2800,
-#                           patch_size*2, patch_size*2,
-#                           overlap_val_test)
-# tiles = [tiles_scale_1, tiles_scale_2]
-# tiles = [tiles, tiles]
 # %%
 # MAKE & SAVE NEW DATASET OR LOAD CURRENTLY SAVED ONE-------------------------
-df = make_df(root,
-             from_file=False,
-             save_to_file=False,
-             file_dir=file_dir)
-
-
-# ***************
-# os.chdir('/media/dysk_a/jr_buler/CMMD/TheChineseMammographyDatabase/')
-# df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
-# df = df.sort_values(
-#     by=['LeftRight']).groupby('ID1').agg({"Age": np.mean,
-#                                           "LeftRight": list,
-#                                           "classification": list,
-#                                           }).reset_index()
-# root = '/media/dysk_a/jr_buler/CMMD/TheChineseMammographyDatabase/CMMD/'
+if dataset == 'MUG':
+    df = make_df(root,
+                from_file=True,
+                save_to_file=False,
+                file_dir=file_dir)
+    # ***************
+elif dataset == 'CMMD':
+    os.chdir('/media/dysk_a/jr_buler/TheChineseMammographyDatabase/')
+    df = pd.read_csv('CMMD_clinicaldata_revision_CSV.csv', sep=';')
+    df = df.sort_values(
+        by=['LeftRight']).groupby('ID1').agg({"Age": np.mean,
+                                            "LeftRight": list,
+                                            "classification": list,
+                                            }).reset_index()
+    root = '/media/dysk_a/jr_buler/TheChineseMammographyDatabase/CMMD/'
 # ***************
 
 # %%
@@ -149,6 +140,7 @@ if create_new_dl:
 
     data_loaders, data_loaders_sizes, ds = gen_data_loader(
         root=root,
+        dataset=dataset,
         train_df=train_set,
         val_df=val_set,
         test_df=test_set,
@@ -168,62 +160,6 @@ if create_new_dl:
 else:
     data_loaders = torch.load(dataloader_path)
     data_loaders_sizes = torch.load(dataloader_sizes_path)
-
-if 0:  # find column to crop
-    get_points(ds, 222)
-if 0:
-    for i in range(1681):
-        my_show_image(ds['test'][i], with_marks=True)
-# %%
-# IMAGE STATS - MEAN - STD - VAR - AREA
-if 0:
-    stats_dict = make_img_stats_dict(ds)
-if 0:
-    box_plot(stats_dict, k='area')
-# %%
-if 0:
-    for i in range(30):
-        i = i+30
-        if ds['test'][i][1]['class'] == 'Malignant':
-            my_show_image(ds['test'][i], with_marks=True, format_type='svg')
-# %%
-if 0:
-    from pydicom import dcmread
-    dir = root
-    os.chdir(dir)
-    for folder in os.listdir(os.getcwd()):
-        os.chdir(os.path.join(dir, folder))
-        for file in os.listdir(os.getcwd()):
-            dcm = dcmread(file)
-            if dcm.ManufacturerModelName != 'Mammomat Inspiration':
-                print(dcm.ManufacturerModelName)
-                print(folder, end='/')
-                print(file)
-
-            # print(dcm.AcquisitionDate, end=' ')
-            # print(dcm.WindowCenter, end=' ')
-            # print(dcm.WindowWidth, end=' ')
-            # print(dcm.RescaleSlope, end=' ')
-            # print(dcm.RescaleIntercept)
-            # print(dcm.BodyPartThickness)
-# %%
-# LEARNING RATE FINDER FOR ONE-CYCLE POLICY-----------------------------------
-if 0:
-    for wd in [1e-4]:  # , 2e-3, 3e-4, 1e-5]:
-        START_LR = 1e-6
-        net, criterion, optimizer = choose_NCOS(net_ar='gmil',
-                                                device=device,
-                                                pretrained=True,
-                                                criterion_type='bce',
-                                                optimizer_type='sgd',
-                                                lr=START_LR, wd=wd)
-        END_LR = 1
-        NUM_ITER = 1
-        lr_finder = LRFinder(net, optimizer, criterion, device)
-        lrs, losses = lr_finder.range_test(data_loaders['val'],
-                                           END_LR, NUM_ITER)
-        print('WD:', wd)
-        plot_lr_finder(lrs, losses, skip_start=0, skip_end=0)
 
 # %%
 # SET TRAINING PLAN-----------------------------------------------------------
@@ -263,21 +199,9 @@ if 1:
             net.running_mean = None
             net.running_var = None
             # net.momentum = 0.01
-
-    # def change_bn_to_gn(net):
-    #     for name, module in net.named_modules():
-    #         if isinstance(module, nn.BatchNorm2d):
-    #             # Get current bn layer
-    #             bn = getattr(net, name)
-    #             # Create new gn layer
-    #             gn = nn.GroupNorm(1, bn.num_features)
-    #             # Assign gn
-    #             print('Swapping {} with {}'.format(bn, gn))
-    #             setattr(net, name, gn)
-
     net.apply(deactivate_batchnorm)
 if 0:
-    fn = '966ccf26-e250-4ea8-a5f5-9fa7fc9287d8'
+    fn = 'd9c349b4-b2db-437b-8563-86661e3850ce'
     model_load_path = ('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                        + 'neptune_saved_models/' + fn)
     net_sd = torch.load(model_load_path, map_location=device)
@@ -285,6 +209,7 @@ if 0:
 
     net.load_state_dict(net_sd)
     net.to(device)
+
 # %%
 # TRAIN NETWORK---------------------------------------------------------------
 if 1:
@@ -304,8 +229,6 @@ state_dict_BL, state_dict_BACC, loss_stats, accuracy_stats = train_net(
     accum_steps=grad_accu_steps
     )
 
-if 0:
-    my_show_training_results(accuracy_stats, loss_stats)
 # %%
 # TEST NETWORK----------------------------------------------------------------
 if 1:
@@ -330,7 +253,6 @@ if 1:
     torch.save(net_BACC.state_dict(), model_save_path)
     del net_BACC
 
-if 1:
     net_BL = net
     net_BL.load_state_dict(state_dict_BL)
     metrics, figures, best_th, roc_auc = test_net(net_BL, data_loaders,
@@ -351,131 +273,8 @@ if 1:
     torch.save(net_BL.state_dict(), model_save_path)
     del net_BL
 
-
 if run is not None:
     run['test/auc_roc'] = roc_auc
     run.stop()
-# %%
-
-# psum  = torch.tensor([0.0, 0.0, 0.0])
-# psum_sq = torch.tensor([0.0, 0.0, 0.0])
-# tiles_count = 0
-
-# # dataloader: B N c h w
-# # bag:          N c h w
-# # tile:           c h w
-
-# for batch in data_loaders['test']:
-#     for bag in batch[0]:
-#         for tile in bag:
-#             tiles_count += 1
-#             psum    += tile.sum(axis=[1,2])
-#             psum_sq += (tile ** 2).sum(axis=[1,2])
-
-# image_size = tiles[0][0][2]
-# count = tiles_count * image_size * image_size
-
-# # mean and std
-# total_mean = psum / count
-# total_var  = (psum_sq / count) - (total_mean ** 2)
-# total_std  = torch.sqrt(total_var)
-
-# # output
-# print('mean: '  + str(total_mean))
-# print('std:  '  + str(total_std))
-# %%
-# Rysowanie hist dla setow val i test
-# confidence dla kazdego pacjenta w zbiorze
-
-# 34a2036b-0f9c-4dc5-b583-86ec05c932e3  best rocacc
-# eaedf20a-8cac-479f-a5f3-07727bf3b726  best roclss
-if 0:
-
-    std = torch.load('/media/dysk_a/jr_buler/mammografia/Zapisy/'
-                     + 'neptune_saved_models/'
-                     + '34a2036b-0f9c-4dc5-b583-86ec05c932e3',
-                     map_location=device)
-    net.load_state_dict(std)
-    phases = ['val', 'test']
-    net.to(device)
-    net.eval()
-
-    ids_list = list()
-    pred_list = list()
-    class_list = list()
-    for phase in phases:
-        for images, targets in data_loaders[phase]:
-            images = images.to(device)
-            labels = targets["labels"].to(device)
-            with torch.no_grad():
-                outputs = net(images)
-                preds = torch.sigmoid(
-                    outputs[0]).reshape(-1).detach().cpu()
-
-                if preds.numpy().round() == labels.item():
-                    ids_list.append(targets['patient_id'])
-                    pred_list.append(preds.item())
-                    class_list.append(targets['class'])
-    pred_df = pd.DataFrame()
-    pred_df['scores'] = pred_list
-    pred_df['class'] = class_list
-    pred_df['id'] = ids_list
-    pred_df['scores'].plot.hist(grid=True, bins=20, rwidth=0.9,
-                                color='#607c8e')
-    plt.title('Correct preds')
-    plt.xlabel('Scores')
-    plt.ylabel('Counts')
-    plt.grid(axis='y', alpha=0.75)
-    plt.show()
-
-    ids_list = list()
-    pred_list = list()
-    class_list = list()
-    laterality_list = list()
-    for phase in phases:
-        for images, targets in data_loaders[phase]:
-            images = images.to(device)
-            labels = targets["labels"].to(device)
-            with torch.no_grad():
-                outputs = net(images)
-                preds = torch.sigmoid(
-                    outputs[0]).reshape(-1).detach().cpu()
-
-                if preds.numpy().round() != labels.item():
-                    ids_list.append(targets['patient_id'])
-                    pred_list.append(preds.item())
-                    class_list.append(targets['class'])
-                    laterality_list.append(targets['laterality'])
-    pred_df = pd.DataFrame()
-    pred_df['scores'] = pred_list
-    pred_df['class'] = class_list
-    pred_df['id'] = ids_list
-    pred_df['scores'].plot.hist(grid=True, bins=20, rwidth=0.9,
-                                color='#607c8e')
-    print("False negatives")
-    print(pred_df[pred_df['scores'] < 0.2])
-    print("False positives")
-    print(pred_df[pred_df['scores'] > 0.8])
-    plt.title('Incorrect preds')
-    plt.xlabel('Scores')
-    plt.ylabel('Counts')
-    plt.grid(axis='y', alpha=0.75)
-    plt.show()
-# %%
-if 0:
-
-    phases = ['train', 'val', 'test']
-    num_instances = list()
-    for phase in phases:
-        for images, targets in data_loaders[phase]:
-            num_instances.append(len(images[0]))
-        df = pd.DataFrame()
-        df['num_instances'] = num_instances
-        df['num_instances'].plot.hist(grid=True, bins=20, rwidth=0.9,
-                                      color='#607c8e')
-        plt.title('Bag sizes' + ' [' + phase + ']')
-        plt.xlabel('Number of instances')
-        plt.ylabel('Bags')
-        plt.grid(axis='y', alpha=0.75)
-        plt.show()
-# %%
+else:
+    print('run not set')
