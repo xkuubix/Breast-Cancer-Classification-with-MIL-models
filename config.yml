@@ -1,8 +1,9 @@
 seed: 42
-device: ['cpu']
+device: ['cuda:1']
 
 
 data_sets:
+  dataset: 'MUG'
   create_new_dl: True
   num_workers: 2
   split_fraction_train_rest: 0.75
@@ -16,14 +17,15 @@ data_sets:
   image_view: ['CC', 'MLO']
   # class_names: ['No metastasis', 'ALNMetastasis']
   # class_names: ['Malignant', 'Lymph_nodes']
-  class_names: ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
+  # class_names: ['Normal', 'Benign', 'Malignant', 'Lymph_nodes']
+  class_names: ['No cancer', 'Cancer']
   #['Normal', 'Benign', 'Malignant', 'Lymph_nodes'] bcds zmienic 0.1. na 0123
-
+  not_multiscale: True
   patch_size: 224
-  bag_size_train: 500
+  bag_size_train: -1
   bag_size_val_test: -1
-  overlap_train_val: 0.25
-  overlap_val_test: 0.5
+  overlap_train_val: 0.
+  overlap_val_test: 0.
 
 image:
   size: [7036, 2800]
@@ -40,17 +42,17 @@ training_plan:
   
   parameters:
     batch_size: 1
-    epochs: [1000]
-    lr: [0.00005]
+    epochs: [500]
+    lr: [0.0005]
     wd: [0.001]
 
     grad_accu:
       is_on: True
       steps: 8
 
-  criterion: 'ce'
+  criterion: 'bce'
 
-  optim_name: 'adam'
+  optim_name: 'sgd'
 
   scheduler:
     name: 'lin'
