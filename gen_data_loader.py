@@ -1,11 +1,12 @@
 from BreastCancerDataset import BreastCancerDataset
-# from BreastCancerDataset import CMMD_DS
+from BreastCancerDataset import CMMD_DS
 from torch.utils.data import DataLoader, WeightedRandomSampler
 import torch
 import numpy as np
 
 
 def gen_data_loader(root,
+                    dataset,
                     train_df,
                     val_df,
                     test_df,
@@ -22,31 +23,58 @@ def gen_data_loader(root,
                     is_multimodal=False
                     ) -> tuple:
 
-    train_dataset = BreastCancerDataset(root, train_df,
-                                        view, transforms[0],
-                                        conv_to_bag,
-                                        bag_size=bag_size_train,
-                                        tiles=tiles[0],
-                                        img_size=img_size,
-                                        is_multimodal=is_multimodal
-                                        )
-    val_dataset = BreastCancerDataset(root, val_df,
-                                      view, transforms[1],
-                                      conv_to_bag,
-                                      bag_size=bag_size_val_test,
-                                      tiles=tiles[1],
-                                      img_size=img_size,
-                                      is_multimodal=is_multimodal
-                                      )
-    test_dataset = BreastCancerDataset(root, test_df,
-                                       view, transforms[2],
-                                       conv_to_bag,
-                                       bag_size=bag_size_val_test,
-                                       tiles=tiles[1],
-                                       img_size=img_size,
-                                       is_multimodal=is_multimodal
-                                       )
+    if dataset == 'CMMD':
+        train_dataset = CMMD_DS(root, train_df,
+                                view, transforms[0],
+                                conv_to_bag,
+                                bag_size=bag_size_train,
+                                tiles=tiles[0],
+                                img_size=img_size,
+                                is_multimodal=is_multimodal
+                                )
+        val_dataset = CMMD_DS(root, val_df,
+                              view, transforms[1],
+                              conv_to_bag,
+                              bag_size=bag_size_val_test,
+                              tiles=tiles[1],
+                              img_size=img_size,
+                              is_multimodal=is_multimodal
+                              )
+        test_dataset = CMMD_DS(root, test_df,
+                               view, transforms[2],
+                               conv_to_bag,
+                               bag_size=bag_size_val_test,
+                               tiles=tiles[1],
+                               img_size=img_size,
+                               is_multimodal=is_multimodal
+                               )
 
+    elif dataset == 'MUG':
+        train_dataset = BreastCancerDataset(root, train_df,
+                                            view, transforms[0],
+                                            conv_to_bag,
+                                            bag_size=bag_size_train,
+                                            tiles=tiles[0],
+                                            img_size=img_size,
+                                            is_multimodal=is_multimodal
+                                            )
+        val_dataset = BreastCancerDataset(root, val_df,
+                                          view, transforms[1],
+                                          conv_to_bag,
+                                          bag_size=bag_size_val_test,
+                                          tiles=tiles[1],
+                                          img_size=img_size,
+                                          is_multimodal=is_multimodal
+                                          )
+        test_dataset = BreastCancerDataset(root, test_df,
+                                           view, transforms[2],
+                                           conv_to_bag,
+                                           bag_size=bag_size_val_test,
+                                           tiles=tiles[1],
+                                           img_size=img_size,
+                                           is_multimodal=is_multimodal
+                                           )
+    
     print_ds_info(train_dataset, 'Train dataset ', view)
     print_ds_info(val_dataset, 'Validation dataset ', view)
     print_ds_info(test_dataset, 'Test dataset ', view)
