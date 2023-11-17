@@ -3,6 +3,7 @@ import copy
 import torch
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 # from deactivate_batchnorm import deactivate_batchnorm
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
@@ -31,7 +32,7 @@ def train_net(net, dataloaders,
     best_loss = None
     best_acc = None
     early_stopping_counter = 0
-    patience = 50
+    patience = 10
     accuracy_stats = {"train": [], "val": []}
     loss_stats = {"train": [], "val": []}
 
@@ -207,6 +208,8 @@ def train_net(net, dataloaders,
 
 
 def test_net(net, data_loaders: dict, class_names: list, device):
+
+    matplotlib.use('Agg')  # block figs not to pop-up 
 
     net.eval()
     scores = np.array([])
