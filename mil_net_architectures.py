@@ -130,6 +130,7 @@ class AttentionMIL(nn.Module):
         super().__init__()
         self.size_dict = {"small": [512, 256, 128], "big": [512, 256, 256]}
         size = self.size_dict[size_arg]
+        self.A = None
         self.is_pe = False
         self.cat = False
         self.feature_extractor = models.resnet18(pretrained=pretrained)
@@ -175,7 +176,8 @@ class AttentionMIL(nn.Module):
 
         Y = self.classifier(m)  # added
         # print(Y)
-        return Y, A
+        self.A = A
+        return Y
 # -----------------------------------------------------------------
 
 
