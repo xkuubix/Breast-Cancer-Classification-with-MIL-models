@@ -1,5 +1,5 @@
 seed: 42
-device: ['cuda:1']
+device: ['cuda:0']
 
 
 data_sets:
@@ -22,10 +22,10 @@ data_sets:
   #['Normal', 'Benign', 'Malignant', 'Lymph_nodes'] bcds zmienic 0.1. na 0123
   not_multiscale: True
   patch_size: 224
-  bag_size_train: -1
+  bag_size_train: 900
   bag_size_val_test: -1
-  overlap_train_val: 0.
-  overlap_val_test: 0.
+  overlap_train_val: 0.5
+  overlap_val_test: 0.5
 
 image:
   size: [7036, 2800]
@@ -37,7 +37,7 @@ training_plan:
 
   architectures:
     # amil, gamil, l_dsmil, nl_dsmil, gmamil, clam_sb, clam_mb
-    names: 'clam_sb'
+    names: 'gamil'
     dropout: True #p=0.25
   
   parameters:
