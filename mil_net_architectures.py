@@ -134,6 +134,7 @@ class AttentionMIL(nn.Module):
         self.is_pe = False
         self.cat = False
         self.feature_extractor = models.resnet18(pretrained=pretrained)
+        # self.feature_extractor = models.resnet34(pretrained=pretrained)
 
         self.num_features = self.feature_extractor.fc.in_features  # selfdod
         self.feature_extractor.fc = Identity()
@@ -162,9 +163,9 @@ class AttentionMIL(nn.Module):
         H = self.feature_extractor(x)  # x: N bs x C' x W' x W'
         H = self.patch_extractor(H)  # added ~dim Nbs
         H = H.view(bs, num_instances, -1)
-        A, H = self.attention_net(H)
-        A = torch.transpose(A, 2, 1)  # added ~dim bsxKxN 10
-        A = F.softmax(A, dim=2)  # ~ensure weights sum up  to unity ~dim bsxKxN
+        self.A, H = self.attention_net(H)
+        self.A = torch.transpose(self.A, 2, 1)  # added ~dim bsxKxN 10
+        self.A = F.softmax(self.A, dim=2)  # ~ensure weights sum up  to unity ~dim bsxKxN
 
         if self.is_pe:
             H = H.squeeze(0)
@@ -172,11 +173,10 @@ class AttentionMIL(nn.Module):
                                         self.cat)  # N x NUM_FEATS(2)
             H = H.unsqueeze(0)
 
-        m = torch.matmul(A, H)  # added ~dim bsxKxN ~attention pooling
+        m = torch.matmul(self.A, H)  # added ~dim bsxKxN ~attention pooling
 
         Y = self.classifier(m)  # added
         # print(Y)
-        self.A = A
         return Y
 # -----------------------------------------------------------------
 
