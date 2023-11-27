@@ -197,7 +197,7 @@ def deactivate_batchnorm(net):
 
 if 1:
     net.apply(deactivate_batchnorm)
-    net_to_load = 'd2115391-1a64-4341-8225-2d50a33c7809'
+    net_to_load = '1f86047a-92d7-45c0-9b1f-75461227210b'
     std = torch.load('/media/dysk_a/jr_buler/mammografia/Zapisy/'
                      + 'neptune_saved_models/'
                      + net_to_load,
@@ -207,100 +207,115 @@ if 1:
 # %%
 from captum.attr import LayerGradCam
 from captum.attr import LayerAttribution
-if 1:
+
+def get_attributions(net, input_net, ):
     with torch.no_grad():
-        for i in range(7):
-            
-            h, w = image_size[0], image_size[1]
-            empty_img = torch.zeros(3, h, w )
-            empty_img_counts = torch.ones(3, h, w )
-            to_show = torch.ones(3, h, w )
+        net.zero_grad()
+        layer_gc = LayerGradCam(net, net.feature_extractor.layer4[1].conv2)
+        attributions = layer_gc.attribute(input_net, target=0).detach().cpu()
+        upsampled_attr = LayerAttribution.interpolate(attributions, (224, 224),
+                                                    interpolate_mode='nearest')
+        return upsampled_attr
+    '''
+        sprawdzić interpolate_mode = 'nearest', 'linear', area', 'bilinear'
+        ponoć linear lepsze od nearest - więcej detali
+                    
+    '''
 
-            d_s = next(iter(data_loaders['test']))
+with torch.no_grad():
+    data = iter(data_loaders['test'])
+    d_s = []
+    for i in range(40):
+        h, w = image_size[0], image_size[1]
+        empty_img = torch.zeros(3, h, w )
+        empty_img_counts = torch.ones(3, h, w )
+        to_show = torch.ones(3, h, w )
 
-            # if d_s[1]['class'][0] == 'Normal':
-            #     continue
-            im = d_s[1]['full_image'].squeeze(dim=0)
-            id = d_s[1]['tiles_indices'].squeeze(dim=0)
+        d_s = next(data)
 
-            ####### sid = '[' + d_s[1]['patient_id'][0] + ']'
+        if d_s[1]['class'][0] in ['Normal', 'Benign'] :
+            continue
 
-            net.eval()
-            input = d_s[0].to(device)
-            output = net(input, None)  # , d_s[1]['tile_cords'])
-            score = torch.sigmoid(output[0]).detach().cpu().numpy()
-            pred = score.round()
-            # _, pred = torch.max(output[0].reshape(-1, 4), 1)
-            # if pred != d_s[1]['labels'] or d_s[1]['labels'] == 0:
-            #     continue
-            
-            layer_gc = LayerGradCam(net, net.feature_extractor.layer4[1].conv2)
-            attributions = layer_gc.attribute(input, 0).detach().cpu()
-            upsampled_attr = LayerAttribution.interpolate(attributions, (224, 224),
-                                                          interpolate_mode='nearest')
-            upsampled_attr = upsampled_attr.permute(1,0,2,3).squeeze()
-            attribution_map = torch.zeros(3, h, w)
+        im = d_s[1]['full_image'].squeeze(dim=0)
+        id = d_s[1]['tiles_indices'].squeeze(dim=0)
 
+        ####### sid = '[' + d_s[1]['patient_id'][0] + ']'
+        net.eval()
+        input_net = d_s[0].to(device)
+        output = net(input_net, None)  # , d_s[1]['tile_cords'])
+        score = torch.sigmoid(output[0]).detach().cpu().numpy()
+        pred = score.round()
+        # _, pred = torch.max(output[0].reshape(-1, 4), 1)
+        # if pred != d_s[1]['labels'] or d_s[1]['labels'] == 0:
+        #     continue
+        
 
-            # gmil
-            # weights = output[1]
-            weights = net.A
+        upsampled_attr = get_attributions(net, input_net, )
+    
 
-            # clam
-            # weights = output[3]
-            weights = weights.squeeze()
+        upsampled_attr = upsampled_attr.permute(1,0,2,3).squeeze()
+        attribution_map = torch.zeros(3, h, w)
 
-            for item in range(len(id)):
-                h_min, w_min, dh, dw, _, _ = tiles[1][id][item]
-                to_show[:, h_min:h_min+dh, w_min:w_min+dw] = d_s[0][0][item]
+        # gmil
+        weights = net.A
+        # clam
+        # weights = output[3]
 
-                empty_img[:, h_min:h_min+dh, w_min:w_min+dw] +=\
-                    weights[item].detach().cpu()
-                empty_img_counts[:, h_min:h_min+dh, w_min:w_min+dw] += 1
-                attribution_map[:, h_min:h_min+dh, w_min:w_min+dw] +=\
-                        upsampled_attr[item]
+        weights = weights.detach().cpu().squeeze()
 
-            empty_img = torch.div(empty_img, empty_img_counts)
-            empty_img /= torch.max(empty_img.reshape(-1))
-            attribution_map=attribution_map.sum(0)
+        for item in range(len(id)):
+            h_min, w_min, dh, dw, _, _ = tiles[1][id][item]
+            to_show[:, h_min:h_min+dh, w_min:w_min+dw] = d_s[0][0][item]
 
-            fig, ax = plt.subplots(1, 5, figsize=(35//2, 28//2))
-            ax[0].imshow(im.permute(1, 2, 0))
-            ax[1].imshow(to_show.permute(1, 2, 0), cmap='gray')
-            ax[2].imshow(empty_img.permute(1, 2, 0), cmap='gray')
-            ax[3].imshow(attribution_map, vmin=0, vmax=1,cmap='hot')
+            empty_img[:, h_min:h_min+dh, w_min:w_min+dw] +=\
+                weights[item]
+            empty_img_counts[:, h_min:h_min+dh, w_min:w_min+dw] += 1
+            attribution_map[:, h_min:h_min+dh, w_min:w_min+dw] +=\
+                    upsampled_attr[item]
 
-            numer = attribution_map - attribution_map.min()
-            denom = (attribution_map.max() - attribution_map.min()) + 1e-5
-            attribution_map = numer / denom
-            th, _ = attribution_map.reshape(-1).sort()
-            th = th[-int((len(th)*.01))]
-            attribution_map[attribution_map >= th] = 1.
-            attribution_map[attribution_map < th] = 0.
-            ax[4].imshow(attribution_map,
-                         vmin=attribution_map.min(),
-                         vmax=attribution_map.max(),
-                         cmap='gray')
+        empty_img = torch.div(empty_img, empty_img_counts)
+        empty_img /= torch.max(empty_img.reshape(-1))
+        attribution_map = attribution_map.sum(0)
+        attribution_map = attribution_map/attribution_map.max()
 
-            # ax[2].imshow(empty_img, cmap='gray')
+        fig, ax = plt.subplots(1, 5, figsize=(35//2, 28//2))
+        ax[0].imshow(im.permute(1, 2, 0))
+        ax[1].imshow(to_show.permute(1, 2, 0), cmap='gray')
+        ax[2].imshow(empty_img.permute(1, 2, 0), cmap='gray')
+        ax[3].imshow(attribution_map, vmin=0, vmax=1,cmap='hot')
 
-            if d_s[1]['class'][0] == 'Normal':
-                s_title = ' ' + 'Ground Truth: No cancer'  # + sid
-            elif d_s[1]['class'][0] == 'Benign':
-                s_title = ' ' + 'Ground Truth: No cancer'  # + sid
-            elif d_s[1]['class'][0] == 'Malignant':
-                s_title = ' ' + 'Ground Truth: Malignant'  # + sid
-            elif d_s[1]['class'][0] == 'Lymph_nodes':
-                s_title = ' ' + 'Ground Truth: Lymph_nodes'  # + sid
-            ax[0].set_title(s_title)
-            ax[1].set_title("Selected tiles")
-            # predictions = ['No cancer', ' Cancer']
-            predictions = class_names
-            # bce / ce
-            pred = torch.sigmoid(output[0]).detach().cpu().numpy().round()
-            s_title = "Predicted: " + predictions[int(pred[0])] +\
-                '[' + str(score[0][0].__round__(2)) + ']'
-            # [0][0] clam ds // [0][0][0] ag
-            ax[2].set_title(s_title)
-            ax[3].set_title("GradCAM")
+        numer = attribution_map - attribution_map.min()
+        denom = (attribution_map.max() - attribution_map.min()) + 1e-5
+        attribution_map = numer / denom
+
+        # th, _ = attribution_map.reshape(-1).sort()
+        # th = th[-int((len(th)*.01))]
+        # attribution_map[attribution_map >= th] = 1.
+        # attribution_map[attribution_map < th] = 0.
+        ax[4].imshow(attribution_map,
+                        vmin=attribution_map.min(),
+                        vmax=attribution_map.max(),
+                        cmap='gray')
+
+        # ax[2].imshow(empty_img, cmap='gray')
+
+        if d_s[1]['class'][0] == 'Normal':
+            s_title = ' ' + 'Ground Truth: No cancer'  # + sid
+        elif d_s[1]['class'][0] == 'Benign':
+            s_title = ' ' + 'Ground Truth: No cancer'  # + sid
+        elif d_s[1]['class'][0] == 'Malignant':
+            s_title = ' ' + 'Ground Truth: Malignant'  # + sid
+        elif d_s[1]['class'][0] == 'Lymph_nodes':
+            s_title = ' ' + 'Ground Truth: Lymph_nodes'  # + sid
+        ax[0].set_title(s_title)
+        ax[1].set_title("Selected tiles")
+        # predictions = ['No cancer', ' Cancer']
+        predictions = class_names
+        # bce / ce
+        pred = torch.sigmoid(output[0]).detach().cpu().numpy().round()
+        s_title = "Predicted: " + predictions[int(pred[0])] +\
+            '[' + str(score[0][0].__round__(2)) + ']'
+        # [0][0] clam ds // [0][0][0] ag
+        ax[2].set_title(s_title)
+        ax[3].set_title("GradCAM")
 # %%
