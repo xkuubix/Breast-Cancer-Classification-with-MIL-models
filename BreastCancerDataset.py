@@ -113,6 +113,7 @@ class BreastCancerDataset(torch.utils.data.Dataset):
 
         if self.convert_to_bag:
             target['full_image'] = img
+
             # Multi scale bag instances
             if len(self.tiles) == 2:
                 if target["laterality"] == 'R':
@@ -128,12 +129,13 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                 img = torch.cat((instances_scale_1, instances_scale_2),
                                 dim=0)
                 if self.transforms is not None:
-                    for i, image in enumerate(img):
-                        angle = random.choice([-90, 0, 90, 180])
-                        img[i] = TF.rotate(img[i], angle)
+                    # for i, image in enumerate(img):
+                    #     angle = random.choice([-90, 0, 90, 180])
+                    #     img[i] = TF.rotate(img[i], angle)
                         # img[i] = self.transforms(img[i])
                     img = self.transforms(img)
                 target['tiles_indices'] = [t_id_scale_1, t_id_scale_2]
+
             # Single scale bag instances
             else:
                 img, t_id, t_cord = convert_img_to_bag(img, self.tiles,
@@ -142,9 +144,9 @@ class BreastCancerDataset(torch.utils.data.Dataset):
                 target['tile_cords'] = t_cord
 
                 if self.transforms is not None:
-                    for i, _ in enumerate(img):
-                        angle = random.choice([-90, 0, 90, 180])
-                        img[i] = TF.rotate(img[i], angle)
+                    # for i, _ in enumerate(img):
+                    #     angle = random.choice([-90, 0, 90, 180])
+                    #     img[i] = TF.rotate(img[i], angle)
                     img = self.transforms(img)
 
             # img = (img - img.mean())/img.std()
