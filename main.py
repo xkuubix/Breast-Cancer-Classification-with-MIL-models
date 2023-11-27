@@ -23,6 +23,7 @@ from get_points_to_crop import get_points
 from tile_maker import get_tiles
 
 warnings.filterwarnings(action='ignore', category=UserWarning)
+
 # %%
 # MAKE PARSER AND LOAD PARAMS FROM CONFIG FILE--------------------------------
 def get_args_parser():
@@ -48,6 +49,7 @@ selected_device = config['device'][0]
 device = torch.device(selected_device if torch.cuda.is_available() else "cpu")
 
 seed = config['seed']
+np.random.seed(seed)
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 
@@ -82,12 +84,26 @@ overlap_val_test = config['data_sets']['overlap_val_test']
 input_size = patch_size
 min_scale = 0.8
 
-transform = T.Compose([  # T.RandomAffine(degrees=(0), translate=(0, 0.1)),
+gaussian_blur = T.GaussianBlur(kernel_size=5)
+color_jitter = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2)
+
+# Definiuj Random Apply
+augmentation_rotation = T.RandomApply([T.RandomRotation(degrees=(90, 90))], p=0.5)
+augmentation_gblur = T.RandomApply([gaussian_blur], p=0.5)
+augmentation_cjitter = T.RandomApply([color_jitter], p=0.5)
+augmentation_rrcrop = T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0),
+                                         antialias=True)
+
+
+
+                       
+transform = T.Compose([augmentation_rotation,
                        T.RandomHorizontalFlip(),
                        T.RandomVerticalFlip(),
-                       T.RandomResizedCrop(size=input_size,
-                                           scale=(min_scale, 1.0),
-                                           antialias=True)])
+                       augmentation_cjitter,
+                       augmentation_gblur,
+                       augmentation_rrcrop])
+# transform = None
 transforms_val_test = None
 tfs = [transform, transforms_val_test, transforms_val_test]
 
@@ -131,7 +147,6 @@ elif dataset == 'CMMD':
 # ***************
 
 # %%
-
 if create_new_dl:
     train_set, val_set, test_set = random_split_df(df,
                                                    train_rest_frac,
@@ -215,6 +230,7 @@ if 0:
 if 1:
     run = neptune.init(project='ProjektMMG/Mammografia')
     run['config'] = config
+    run['transforms'] = transform
 else:
     run = None
 
